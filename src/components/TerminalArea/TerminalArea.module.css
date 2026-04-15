@@ -12,22 +12,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #0d0d1a;
-  margin: 4px;
-  border-radius: 4px;
-}
-
-.placeholderText {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-muted);
+  position: relative;
 }
 
 .emptyState {

@@ -13,3 +13,11 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.sessionPanel {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg-secondary, #16161e);
+  border-left: 1px solid var(--border-color, #1a1b26);
+  overflow-y: auto;
+}
