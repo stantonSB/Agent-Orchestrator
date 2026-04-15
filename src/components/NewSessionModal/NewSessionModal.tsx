@@ -65,7 +65,6 @@ export function NewSessionModal({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
         tabIndex={-1}
-        ref={(el) => el?.focus()}
       >
         <h2 className={styles.title}>New Session</h2>
 
