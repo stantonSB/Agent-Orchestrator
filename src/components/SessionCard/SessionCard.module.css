@@ -1,0 +1,76 @@
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+}
+
+.card:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.active {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dismissed {
+  opacity: 0.5;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusStarting { background-color: #3b82f6; }
+.statusWorking {
+  background-color: #22c55e;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.statusIdle { background-color: #6b7280; }
+.statusNeedsAttention { background-color: #f97316; }
+.statusFinished { background-color: #6b7280; }
+.statusError { background-color: #ef4444; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status {
+  font-size: 11px;
+  color: #9ca3af;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  text-transform: capitalize;
+}
+
+.finishedIcon {
+  color: #6b7280;
+  font-size: 12px;
+  flex-shrink: 0;
+}
