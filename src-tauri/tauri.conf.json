@@ -1,8 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
-  "plugins": {
-    "dialog": {}
-  },
+  "plugins": {},
   "productName": "Agent Orchestrator",
   "version": "0.1.0",
   "identifier": "com.agent-orchestrator.app",
