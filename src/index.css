@@ -1,0 +1,43 @@
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --text-muted: #6c6c80;
+  --border-color: #2a2a4a;
+  --accent: #4fc3f7;
+  --status-starting: #64b5f6;
+  --status-working: #66bb6a;
+  --status-idle: #9e9e9e;
+  --status-attention: #ffa726;
+  --status-finished: #78909c;
+  --status-error: #ef5350;
+  --titlebar-height: 38px;
+  --sidebar-width: 30%;
+  --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Disable text selection on UI chrome (not in terminals) */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
