@@ -2,22 +2,51 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  width: 100vw;
+  background: #12121a;
+  color: #e5e7eb;
   overflow: hidden;
-  background: var(--bg-primary);
 }
 
-.mainContent {
+.content {
   display: flex;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
 }
 
-.sessionPanel {
-  width: 220px;
-  min-width: 220px;
-  background: var(--bg-secondary, #16161e);
-  border-left: 1px solid var(--border-color, #1a1b26);
-  overflow-y: auto;
+.terminalArea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.emptyTerminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.emptyText {
+  color: #4b5563;
+  font-size: 15px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+}
+
+.emptyButton {
+  padding: 10px 20px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #3b82f6;
+  font-size: 14px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.emptyButton:hover {
+  background: rgba(59, 130, 246, 0.25);
 }

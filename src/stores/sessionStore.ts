@@ -6,9 +6,11 @@ import type { SessionInfo, SessionStatus } from "../types/session";
 interface SessionState {
   sessions: Map<string, SessionInfo>;
   activeSessionId: string | null;
+  lastUsedDirectory: string | null;
 
   // Mutations
   addSession: (session: SessionInfo) => void;
+  setLastUsedDirectory: (dir: string) => void;
   removeSession: (id: string) => void;
   updateSessionStatus: (id: string, status: SessionStatus) => void;
   setActiveSession: (id: string) => void;
@@ -27,6 +29,9 @@ const eventCleanups = new Map<string, UnlistenFn[]>();
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   activeSessionId: null,
+  lastUsedDirectory: null,
+
+  setLastUsedDirectory: (dir) => set({ lastUsedDirectory: dir }),
 
   addSession: (session) =>
     set((state) => {
@@ -75,6 +80,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().addSession(session);
     get().setActiveSession(id);
     get().setupEventListeners(id);
+    set({ lastUsedDirectory: cwd });
   },
 
   closeSession: async (id) => {

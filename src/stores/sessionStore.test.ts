@@ -14,6 +14,7 @@ describe("sessionStore", () => {
     useSessionStore.setState({
       sessions: new Map(),
       activeSessionId: null,
+      lastUsedDirectory: null,
     });
   });
 
@@ -139,6 +140,19 @@ describe("sessionStore", () => {
 
       expect(invoke).toHaveBeenCalledWith("close_session", { id: "abc-123" });
       expect(useSessionStore.getState().sessions.has("abc-123")).toBe(false);
+    });
+  });
+
+  describe("createSession — lastUsedDirectory", () => {
+    it("sets lastUsedDirectory after creating a session", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("dir-test-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Dir Test", "/projects/my-app");
+
+      const { lastUsedDirectory } = useSessionStore.getState();
+      expect(lastUsedDirectory).toBe("/projects/my-app");
     });
   });
 
