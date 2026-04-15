@@ -1,7 +1,14 @@
+import styles from "./App.module.css";
+import { TitleBar, TerminalArea, SessionPanel } from "./components";
+
 function App() {
   return (
-    <div style={{ color: "#c8c8c8", background: "#1a1a2e", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <h1>Agent Orchestrator</h1>
+    <div className={styles.app}>
+      <TitleBar />
+      <div className={styles.mainContent}>
+        <TerminalArea activeSessionId={null} />
+        <SessionPanel sessionCount={0} />
+      </div>
     </div>
   );
 }
