@@ -39,11 +39,22 @@ export function TerminalArea({
   mockMode = false,
 }: TerminalAreaProps) {
   const refsMap = useRef(new Map<string, XTermInstanceHandle>());
+  const outputListeners = useRef(new Map<string, Promise<() => void>>());
+  const exitListeners = useRef(new Map<string, Promise<() => void>>());
+  const outputBuffers = useRef(new Map<string, Uint8Array[]>());
+  const onSessionExitRef = useRef(onSessionExitProp);
+  onSessionExitRef.current = onSessionExitProp;
 
   const setRef = useCallback(
     (id: string) => (handle: XTermInstanceHandle | null) => {
       if (handle) {
         refsMap.current.set(id, handle);
+        // Flush any output that arrived before the terminal mounted
+        const buffer = outputBuffers.current.get(id);
+        if (buffer) {
+          for (const chunk of buffer) handle.write(chunk);
+          outputBuffers.current.delete(id);
+        }
       } else {
         refsMap.current.delete(id);
       }
@@ -51,44 +62,85 @@ export function TerminalArea({
     [],
   );
 
-  // Wire Tauri event listeners for each session (skip in mock mode).
+  // Incrementally manage per-session output and exit listeners.
+  // Listeners persist in refs so adding session B never tears down session A's listener.
   useEffect(() => {
     if (mockMode) return;
 
-    let cancelled = false;
-    const unlisteners: Array<() => void> = [];
+    const currentIds = new Set(sessions.map((s) => s.id));
 
-    (async () => {
-      for (const session of sessions) {
-        const sid = session.id;
+    // Register output listeners for new sessions
+    for (const session of sessions) {
+      const sid = session.id;
+      if (outputListeners.current.has(sid)) continue;
 
-        const [unlistenOutput, unlistenExit] = await Promise.all([
-          onSessionOutput(sid, (payload) => {
-            if (cancelled) return;
-            const handle = refsMap.current.get(sid);
-            if (handle && payload.data) {
-              handle.write(new Uint8Array(payload.data));
-            }
-          }),
-          onSessionExit(sid, (payload) => {
-            if (cancelled) return;
-            onSessionExitProp?.(sid, payload);
-          }),
-        ]);
+      const promise = onSessionOutput(sid, (payload) => {
+        if (!payload.data) return;
+        const handle = refsMap.current.get(sid);
+        if (handle) {
+          handle.write(new Uint8Array(payload.data));
+        } else {
+          let buf = outputBuffers.current.get(sid);
+          if (!buf) {
+            buf = [];
+            outputBuffers.current.set(sid, buf);
+          }
+          buf.push(new Uint8Array(payload.data));
+        }
+      }).catch((err) => {
+        console.error(`Failed to register output listener for ${sid}:`, err);
+        return () => {};
+      });
+      outputListeners.current.set(sid, promise);
+    }
 
-        unlisteners.push(unlistenOutput, unlistenExit);
-      }
+    // Register exit listeners for new sessions
+    for (const session of sessions) {
+      const sid = session.id;
+      if (exitListeners.current.has(sid)) continue;
 
-      if (cancelled) {
-        for (const fn of unlisteners) fn();
-      }
-    })();
+      const promise = onSessionExit(sid, (payload) => {
+        onSessionExitRef.current?.(sid, payload);
+      }).catch((err) => {
+        console.error(`Failed to register exit listener for ${sid}:`, err);
+        return () => {};
+      });
+      exitListeners.current.set(sid, promise);
+    }
 
+    // Clean up listeners for removed sessions
+    const staleOutput = [...outputListeners.current.keys()].filter(
+      (sid) => !currentIds.has(sid),
+    );
+    for (const sid of staleOutput) {
+      outputListeners.current.get(sid)!.then((unlisten) => unlisten());
+      outputListeners.current.delete(sid);
+      outputBuffers.current.delete(sid);
+    }
+
+    const staleExit = [...exitListeners.current.keys()].filter(
+      (sid) => !currentIds.has(sid),
+    );
+    for (const sid of staleExit) {
+      exitListeners.current.get(sid)!.then((unlisten) => unlisten());
+      exitListeners.current.delete(sid);
+    }
+  }, [sessions, mockMode]);
+
+  // Clean up all listeners on unmount.
+  useEffect(() => {
     return () => {
-      cancelled = true;
-      for (const fn of unlisteners) fn();
+      for (const [, promise] of outputListeners.current) {
+        promise.then((unlisten) => unlisten());
+      }
+      for (const [, promise] of exitListeners.current) {
+        promise.then((unlisten) => unlisten());
+      }
+      outputListeners.current.clear();
+      exitListeners.current.clear();
+      outputBuffers.current.clear();
     };
-  }, [sessions, mockMode, onSessionExitProp]);
+  }, []);
 
   // Forward user keystrokes to PTY via IPC.
   const handleSessionData = useCallback(
