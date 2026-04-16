@@ -8,13 +8,15 @@
 //! the manager thread. External code sends requests via an mpsc channel
 //! and receives responses via oneshot channels.
 
+use crate::status_parser::StatusTracker;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -83,6 +85,7 @@ pub struct SessionListEntry {
 
 pub type OutputCallback = Box<dyn Fn(SessionId, Vec<u8>) + Send + Sync + 'static>;
 pub type ExitCallback = Box<dyn Fn(SessionId, Option<u32>) + Send + Sync + 'static>;
+pub type StatusCallback = Box<dyn Fn(SessionId, String) + Send + Sync + 'static>;
 
 // ---------------------------------------------------------------------------
 // Internal session state (lives exclusively on the manager thread)
@@ -176,16 +179,25 @@ impl PtyManagerHandle {
 // Manager thread
 // ---------------------------------------------------------------------------
 
-pub fn start(on_output: OutputCallback, on_exit: ExitCallback) -> PtyManagerHandle {
+pub fn start(
+    on_output: OutputCallback,
+    on_exit: ExitCallback,
+    on_status: StatusCallback,
+) -> PtyManagerHandle {
     let (tx, rx) = mpsc::channel::<PtyRequest>();
 
-    let on_output = std::sync::Arc::new(on_output);
-    let on_exit = std::sync::Arc::new(on_exit);
+    let on_output = Arc::new(on_output);
+    let on_exit = Arc::new(on_exit);
+    let on_status = Arc::new(on_status);
+
+    // Shared status trackers accessible from both manager and reader threads.
+    let status_trackers: Arc<Mutex<HashMap<SessionId, StatusTracker>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     thread::Builder::new()
         .name("pty-manager".into())
         .spawn(move || {
-            manager_loop(rx, on_output, on_exit);
+            manager_loop(rx, on_output, on_exit, on_status, status_trackers);
         })
         .expect("failed to spawn PTY manager thread");
 
@@ -194,212 +206,278 @@ pub fn start(on_output: OutputCallback, on_exit: ExitCallback) -> PtyManagerHand
 
 fn manager_loop(
     rx: mpsc::Receiver<PtyRequest>,
-    on_output: std::sync::Arc<OutputCallback>,
-    on_exit: std::sync::Arc<ExitCallback>,
+    on_output: Arc<OutputCallback>,
+    on_exit: Arc<ExitCallback>,
+    on_status: Arc<StatusCallback>,
+    status_trackers: Arc<Mutex<HashMap<SessionId, StatusTracker>>>,
 ) {
     let mut sessions: HashMap<SessionId, Session> = HashMap::new();
     let pty_system = native_pty_system();
 
-    while let Ok(request) = rx.recv() {
-        match request {
-            PtyRequest::Create {
-                name,
-                cwd,
-                command,
-                args,
-                cols,
-                rows,
-                reply,
-            } => {
-                let id = uuid::Uuid::new_v4().to_string();
-                let size = PtySize {
-                    rows,
+    loop {
+        match rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(request) => match request {
+                PtyRequest::Create {
+                    name,
+                    cwd,
+                    command,
+                    args,
                     cols,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                };
-
-                let pair = match pty_system.openpty(size) {
-                    Ok(pair) => pair,
-                    Err(e) => {
-                        let _ =
-                            reply.send(PtyResponse::Error(format!("Failed to open PTY: {e}")));
-                        continue;
-                    }
-                };
-
-                let mut cmd = CommandBuilder::new(&command);
-                cmd.args(&args);
-                cmd.cwd(&cwd);
-
-                let child = match pair.slave.spawn_command(cmd) {
-                    Ok(child) => child,
-                    Err(e) => {
-                        let _ = reply
-                            .send(PtyResponse::Error(format!("Failed to spawn command: {e}")));
-                        continue;
-                    }
-                };
-
-                drop(pair.slave);
-
-                let writer = match pair.master.take_writer() {
-                    Ok(w) => w,
-                    Err(e) => {
-                        let _ = reply
-                            .send(PtyResponse::Error(format!("Failed to get PTY writer: {e}")));
-                        continue;
-                    }
-                };
-
-                let mut reader = match pair.master.try_clone_reader() {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let _ = reply
-                            .send(PtyResponse::Error(format!("Failed to get PTY reader: {e}")));
-                        continue;
-                    }
-                };
-
-                let reader_id = id.clone();
-                let cb = on_output.clone();
-                let exit_cb = on_exit.clone();
-                let mut child_for_wait = child;
-                let reader_handle = thread::Builder::new()
-                    .name(format!("pty-reader-{}", &id[..8]))
-                    .spawn(move || {
-                        let mut buf = [0u8; 4096];
-                        loop {
-                            match reader.read(&mut buf) {
-                                Ok(0) => break,
-                                Ok(n) => {
-                                    cb(reader_id.clone(), buf[..n].to_vec());
-                                }
-                                Err(e) => {
-                                    if e.kind() != std::io::ErrorKind::Other {
-                                        eprintln!(
-                                            "PTY read error for {}: {e}",
-                                            &reader_id[..8]
-                                        );
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        let exit_code = child_for_wait
-                            .wait()
-                            .ok()
-                            .map(|status| status.exit_code());
-                        exit_cb(reader_id, exit_code);
-                    })
-                    .expect("failed to spawn PTY reader thread");
-
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis();
-
-                sessions.insert(
-                    id.clone(),
-                    Session {
-                        id: id.clone(),
-                        name,
-                        cwd,
-                        master: pair.master,
-                        writer,
-                        created_at: Instant::now(),
-                        created_at_epoch_ms: now,
-                        _reader_handle: reader_handle,
-                    },
-                );
-
-                let _ = reply.send(PtyResponse::Created { id });
-            }
-
-            PtyRequest::Write { id, data, reply } => {
-                if let Some(session) = sessions.get_mut(&id) {
-                    match session.writer.write_all(&data) {
-                        Ok(()) => {
-                            let _ = session.writer.flush();
-                            let _ = reply.send(PtyResponse::WriteOk);
-                        }
-                        Err(e) => {
-                            let _ =
-                                reply.send(PtyResponse::Error(format!("Write failed: {e}")));
-                        }
-                    }
-                } else {
-                    let _ = reply.send(PtyResponse::Error(format!("Session not found: {id}")));
-                }
-            }
-
-            PtyRequest::Resize {
-                id,
-                cols,
-                rows,
-                reply,
-            } => {
-                if let Some(session) = sessions.get(&id) {
+                    rows,
+                    reply,
+                } => {
+                    let id = uuid::Uuid::new_v4().to_string();
                     let size = PtySize {
                         rows,
                         cols,
                         pixel_width: 0,
                         pixel_height: 0,
                     };
-                    match session.master.resize(size) {
-                        Ok(()) => {
-                            let _ = reply.send(PtyResponse::ResizeOk);
-                        }
+
+                    let pair = match pty_system.openpty(size) {
+                        Ok(pair) => pair,
                         Err(e) => {
                             let _ =
-                                reply.send(PtyResponse::Error(format!("Resize failed: {e}")));
+                                reply.send(PtyResponse::Error(format!("Failed to open PTY: {e}")));
+                            continue;
                         }
+                    };
+
+                    let mut cmd = CommandBuilder::new(&command);
+                    cmd.args(&args);
+                    cmd.cwd(&cwd);
+
+                    let child = match pair.slave.spawn_command(cmd) {
+                        Ok(child) => child,
+                        Err(e) => {
+                            let _ = reply
+                                .send(PtyResponse::Error(format!("Failed to spawn command: {e}")));
+                            continue;
+                        }
+                    };
+
+                    drop(pair.slave);
+
+                    let writer = match pair.master.take_writer() {
+                        Ok(w) => w,
+                        Err(e) => {
+                            let _ = reply
+                                .send(PtyResponse::Error(format!("Failed to get PTY writer: {e}")));
+                            continue;
+                        }
+                    };
+
+                    let mut reader = match pair.master.try_clone_reader() {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let _ = reply
+                                .send(PtyResponse::Error(format!("Failed to get PTY reader: {e}")));
+                            continue;
+                        }
+                    };
+
+                    // Insert a new status tracker for this session.
+                    {
+                        let mut trackers = status_trackers.lock().unwrap();
+                        trackers.insert(id.clone(), StatusTracker::new());
                     }
-                } else {
-                    let _ = reply.send(PtyResponse::Error(format!("Session not found: {id}")));
+
+                    let reader_id = id.clone();
+                    let cb = on_output.clone();
+                    let exit_cb = on_exit.clone();
+                    let status_cb = on_status.clone();
+                    let trackers_for_reader = status_trackers.clone();
+                    let mut child_for_wait = child;
+                    let reader_handle = thread::Builder::new()
+                        .name(format!("pty-reader-{}", &id[..8]))
+                        .spawn(move || {
+                            let mut buf = [0u8; 4096];
+                            loop {
+                                match reader.read(&mut buf) {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        let data = buf[..n].to_vec();
+                                        cb(reader_id.clone(), data.clone());
+
+                                        // Feed output to the status tracker.
+                                        let status_change = {
+                                            let mut trackers = trackers_for_reader.lock().unwrap();
+                                            if let Some(tracker) = trackers.get_mut(&reader_id) {
+                                                tracker.feed_output(&data)
+                                            } else {
+                                                None
+                                            }
+                                        };
+                                        if let Some(new_status) = status_change {
+                                            status_cb(
+                                                reader_id.clone(),
+                                                new_status.as_str().to_string(),
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if e.kind() != std::io::ErrorKind::Other {
+                                            eprintln!(
+                                                "PTY read error for {}: {e}",
+                                                &reader_id[..8]
+                                            );
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            let exit_code = child_for_wait
+                                .wait()
+                                .ok()
+                                .map(|status| status.exit_code());
+                            exit_cb(reader_id.clone(), exit_code);
+
+                            // Notify the status tracker of exit.
+                            let code = exit_code.unwrap_or(1) as i32;
+                            let status_change = {
+                                let mut trackers = trackers_for_reader.lock().unwrap();
+                                if let Some(tracker) = trackers.get_mut(&reader_id) {
+                                    Some(tracker.notify_exit(code))
+                                } else {
+                                    None
+                                }
+                            };
+                            if let Some(new_status) = status_change {
+                                status_cb(reader_id, new_status.as_str().to_string());
+                            }
+                        })
+                        .expect("failed to spawn PTY reader thread");
+
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+
+                    sessions.insert(
+                        id.clone(),
+                        Session {
+                            id: id.clone(),
+                            name,
+                            cwd,
+                            master: pair.master,
+                            writer,
+                            created_at: Instant::now(),
+                            created_at_epoch_ms: now,
+                            _reader_handle: reader_handle,
+                        },
+                    );
+
+                    let _ = reply.send(PtyResponse::Created { id });
                 }
-            }
 
-            PtyRequest::Rename { id, name, reply } => {
-                if let Some(session) = sessions.get_mut(&id) {
-                    session.name = name;
-                    let _ = reply.send(PtyResponse::RenameOk);
-                } else {
-                    let _ = reply.send(PtyResponse::Error(format!("Session not found: {id}")));
+                PtyRequest::Write { id, data, reply } => {
+                    if let Some(session) = sessions.get_mut(&id) {
+                        match session.writer.write_all(&data) {
+                            Ok(()) => {
+                                let _ = session.writer.flush();
+                                let _ = reply.send(PtyResponse::WriteOk);
+                            }
+                            Err(e) => {
+                                let _ =
+                                    reply.send(PtyResponse::Error(format!("Write failed: {e}")));
+                            }
+                        }
+                    } else {
+                        let _ =
+                            reply.send(PtyResponse::Error(format!("Session not found: {id}")));
+                    }
                 }
-            }
 
-            PtyRequest::Kill { id, reply } => {
-                if let Some(session) = sessions.remove(&id) {
-                    drop(session.writer);
-                    drop(session.master);
-                    let _ = reply.send(PtyResponse::Killed);
-                } else {
-                    let _ = reply.send(PtyResponse::Error(format!("Session not found: {id}")));
+                PtyRequest::Resize {
+                    id,
+                    cols,
+                    rows,
+                    reply,
+                } => {
+                    if let Some(session) = sessions.get(&id) {
+                        let size = PtySize {
+                            rows,
+                            cols,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        };
+                        match session.master.resize(size) {
+                            Ok(()) => {
+                                let _ = reply.send(PtyResponse::ResizeOk);
+                            }
+                            Err(e) => {
+                                let _ =
+                                    reply.send(PtyResponse::Error(format!("Resize failed: {e}")));
+                            }
+                        }
+                    } else {
+                        let _ =
+                            reply.send(PtyResponse::Error(format!("Session not found: {id}")));
+                    }
                 }
-            }
 
-            PtyRequest::List { reply } => {
-                let entries: Vec<SessionListEntry> = sessions
-                    .values()
-                    .map(|s| SessionListEntry {
-                        id: s.id.clone(),
-                        name: s.name.clone(),
-                        cwd: s.cwd.clone(),
-                        created_at_epoch_ms: s.created_at_epoch_ms,
-                    })
-                    .collect();
-                let _ = reply.send(PtyResponse::Sessions(entries));
-            }
+                PtyRequest::Rename { id, name, reply } => {
+                    if let Some(session) = sessions.get_mut(&id) {
+                        session.name = name;
+                        let _ = reply.send(PtyResponse::RenameOk);
+                    } else {
+                        let _ =
+                            reply.send(PtyResponse::Error(format!("Session not found: {id}")));
+                    }
+                }
 
-            PtyRequest::Shutdown => {
-                let ids: Vec<SessionId> = sessions.keys().cloned().collect();
-                for id in ids {
+                PtyRequest::Kill { id, reply } => {
                     if let Some(session) = sessions.remove(&id) {
                         drop(session.writer);
                         drop(session.master);
+                        // Remove the status tracker for this session.
+                        let mut trackers = status_trackers.lock().unwrap();
+                        trackers.remove(&id);
+                        let _ = reply.send(PtyResponse::Killed);
+                    } else {
+                        let _ =
+                            reply.send(PtyResponse::Error(format!("Session not found: {id}")));
                     }
                 }
+
+                PtyRequest::List { reply } => {
+                    let entries: Vec<SessionListEntry> = sessions
+                        .values()
+                        .map(|s| SessionListEntry {
+                            id: s.id.clone(),
+                            name: s.name.clone(),
+                            cwd: s.cwd.clone(),
+                            created_at_epoch_ms: s.created_at_epoch_ms,
+                        })
+                        .collect();
+                    let _ = reply.send(PtyResponse::Sessions(entries));
+                }
+
+                PtyRequest::Shutdown => {
+                    let ids: Vec<SessionId> = sessions.keys().cloned().collect();
+                    for id in ids {
+                        if let Some(session) = sessions.remove(&id) {
+                            drop(session.writer);
+                            drop(session.master);
+                        }
+                    }
+                    let mut trackers = status_trackers.lock().unwrap();
+                    trackers.clear();
+                    break;
+                }
+            },
+
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Tick all active status trackers to detect idle/needs_attention.
+                let mut trackers = status_trackers.lock().unwrap();
+                for (id, tracker) in trackers.iter_mut() {
+                    if let Some(new_status) = tracker.tick() {
+                        on_status(id.clone(), new_status.as_str().to_string());
+                    }
+                }
+            }
+
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
                 break;
             }
         }
@@ -434,6 +512,7 @@ mod tests {
             Box::new(move |id, code| {
                 el.lock().unwrap().push((id, code));
             }),
+            Box::new(|_id, _status| {}),
         );
 
         (handle, output_log, exit_log)

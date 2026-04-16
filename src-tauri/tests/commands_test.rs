@@ -137,5 +137,6 @@ fn make_handle() -> tauri_app_lib::pty_manager::PtyManagerHandle {
         Box::new(move |id, code| {
             el_c.lock().unwrap().push((id, code));
         }),
+        Box::new(|_id, _status| {}),
     )
 }

@@ -1,0 +1,23 @@
+.pulseContainer {
+  width: 100%;
+  height: 2px;
+  background-color: rgba(34, 197, 94, 0.15);
+  border-radius: 1px;
+  overflow: hidden;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+}
+
+.pulseBar {
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, #22c55e, transparent);
+  border-radius: 1px;
+  animation: slide 1.5s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
