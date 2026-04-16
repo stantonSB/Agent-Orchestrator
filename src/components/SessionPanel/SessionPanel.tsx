@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { SessionInfo } from "../../types/session";
 import { SessionCard } from "../SessionCard/SessionCard";
 import { NewSessionButton } from "../NewSessionButton/NewSessionButton";
@@ -8,6 +9,7 @@ interface SessionPanelProps {
   activeSessionId: string | null;
   onSessionClick: (id: string) => void;
   onNewSession: () => void;
+  style?: CSSProperties;
 }
 
 export function SessionPanel({
@@ -15,9 +17,10 @@ export function SessionPanel({
   activeSessionId,
   onSessionClick,
   onNewSession,
+  style,
 }: SessionPanelProps) {
   return (
-    <div className={styles.panel}>
+    <div className={styles.panel} style={style}>
       <div className={styles.header}>Sessions</div>
       <NewSessionButton onClick={onNewSession} />
       {sessions.length === 0 ? (
