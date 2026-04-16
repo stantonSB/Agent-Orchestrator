@@ -20,13 +20,19 @@ pub fn run() {
             let on_output: pty_manager::OutputCallback =
                 Box::new(move |id, data| {
                     let event_name = format!("session-output-{}", id);
-                    let _ = handle_for_output.emit(&event_name, data);
+                    let _ = handle_for_output.emit(
+                        &event_name,
+                        serde_json::json!({ "data": data }),
+                    );
                 });
 
             let on_exit: pty_manager::ExitCallback =
                 Box::new(move |id, code| {
                     let event_name = format!("session-exit-{}", id);
-                    let _ = handle_for_exit.emit(&event_name, code);
+                    let _ = handle_for_exit.emit(
+                        &event_name,
+                        serde_json::json!({ "code": code }),
+                    );
                 });
 
             let on_status: pty_manager::StatusCallback =
