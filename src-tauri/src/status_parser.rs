@@ -27,6 +27,15 @@ impl SessionStatus {
 }
 
 /// Tracks the output buffer and timing state for a single session.
+///
+/// State machine:
+///   Starting  → Idle      (output settles after startup, user hasn't submitted)
+///   Idle      → Working   (user presses Enter)
+///   Working   → Finished  (output stops for 3s, no question pattern)
+///   Working   → NeedsAttention (output stops for 2s, question/approval pattern)
+///   NeedsAttention → Working (user presses Enter to answer)
+///   Finished  → Working   (user presses Enter for new task)
+///   Any       → Finished/Error (process exits)
 pub struct StatusTracker {
     buffer: Vec<u8>,
     max_buffer_size: usize,
@@ -50,8 +59,10 @@ impl StatusTracker {
         &self.status
     }
 
-    /// Feed new output bytes into the tracker. Returns Some(new_status) if
-    /// the status changed, None otherwise.
+    /// Feed new output bytes into the tracker.
+    ///
+    /// Updates the buffer and timestamp but does NOT change status.
+    /// Status transitions are driven by user input and tick polling.
     pub fn feed_output(&mut self, data: &[u8]) -> Option<SessionStatus> {
         if data.is_empty() {
             return None;
@@ -66,8 +77,34 @@ impl StatusTracker {
             self.buffer.drain(..drain_count);
         }
 
+        // Output alone does not change status.
+        None
+    }
+
+    /// Notify the tracker that the user sent input to the PTY.
+    ///
+    /// If the input contains Enter (carriage return or newline), transitions
+    /// to Working. This is the ONLY way to enter the Working state from
+    /// Idle, Finished, or NeedsAttention.
+    pub fn notify_user_input(&mut self, data: &[u8]) -> Option<SessionStatus> {
+        let has_enter = data.iter().any(|&b| b == b'\r' || b == b'\n');
+        if !has_enter {
+            return None;
+        }
+
+        // Don't transition out of terminal states caused by process exit.
+        if matches!(self.status, SessionStatus::Error) {
+            return None;
+        }
+
         let old_status = self.status.clone();
         self.status = SessionStatus::Working;
+        // Reset the idle timer so we don't immediately transition to
+        // Finished before Claude has a chance to start outputting.
+        self.last_output_at = Some(Instant::now());
+        // Clear buffer so stale patterns (from previous prompts) don't
+        // cause false NeedsAttention detections.
+        self.buffer.clear();
 
         if old_status != self.status {
             Some(self.status.clone())
@@ -79,10 +116,8 @@ impl StatusTracker {
     /// Called periodically to check for time-based status transitions.
     /// Accepts an optional `now` parameter for testability.
     pub fn tick_with_time(&mut self, now: Instant) -> Option<SessionStatus> {
-        if matches!(
-            self.status,
-            SessionStatus::Finished | SessionStatus::Error | SessionStatus::Starting
-        ) {
+        // Terminal states: no transitions.
+        if matches!(self.status, SessionStatus::Finished | SessionStatus::Error) {
             return None;
         }
 
@@ -93,14 +128,31 @@ impl StatusTracker {
         let elapsed = now.duration_since(last_output);
         let old_status = self.status.clone();
 
-        if elapsed.as_secs() >= 10 {
-            if self.check_needs_attention() {
-                self.status = SessionStatus::NeedsAttention;
-            } else {
-                self.status = SessionStatus::Idle;
+        match self.status {
+            SessionStatus::Starting => {
+                // After startup output settles (3s), transition to Idle.
+                // The user hasn't submitted anything yet.
+                if self.has_received_output && elapsed.as_secs() >= 3 {
+                    self.status = SessionStatus::Idle;
+                }
             }
-        } else if elapsed.as_secs() >= 3 {
-            self.status = SessionStatus::Idle;
+            SessionStatus::Working => {
+                // Check for needs_attention first (2s) — faster detection
+                // for follow-up questions and approval prompts.
+                if elapsed.as_secs() >= 2 && self.check_needs_attention() {
+                    self.status = SessionStatus::NeedsAttention;
+                } else if elapsed.as_secs() >= 3 {
+                    // Output stopped without a question pattern → task done.
+                    self.status = SessionStatus::Finished;
+                }
+            }
+            SessionStatus::Idle | SessionStatus::NeedsAttention => {
+                // These states are stable:
+                //   Idle: waiting for user to submit first task
+                //   NeedsAttention: waiting for user to answer question/approval
+                // Both exit via notify_user_input() → Working.
+            }
+            _ => {}
         }
 
         if old_status != self.status {
