@@ -14,9 +14,39 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Capture the user's full login-shell environment.
+///
+/// macOS .app bundles launched from Finder inherit a minimal environment
+/// (PATH=/usr/bin:/bin:/usr/sbin:/sbin) — none of the user's shell profile
+/// variables (NODE_EXTRA_CA_CERTS, custom PATH entries, etc.) are present.
+///
+/// This runs `$SHELL -li -c env` once, parses the output, and caches it
+/// for the lifetime of the process. If it fails for any reason, we fall
+/// back to the process's own (minimal) environment.
+fn shell_env() -> &'static HashMap<String, String> {
+    static ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
+    ENV.get_or_init(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        std::process::Command::new(&shell)
+            .args(["-li", "-c", "env"])
+            .output()
+            .ok()
+            .and_then(|out| {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let map: HashMap<String, String> = stdout
+                    .lines()
+                    .filter_map(|line| line.split_once('='))
+                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                    .collect();
+                if map.is_empty() { None } else { Some(map) }
+            })
+            .unwrap_or_default()
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -247,35 +277,13 @@ fn manager_loop(
                     cmd.args(&args);
                     cmd.cwd(&cwd);
 
-                    // Augment PATH so binaries like `claude` are found when
-                    // launched from a macOS .app bundle, which inherits a
-                    // minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin).
-                    let extra_paths = [
-                        "/opt/homebrew/bin",
-                        "/opt/homebrew/sbin",
-                        "/usr/local/bin",
-                    ];
-                    let current_path =
-                        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".to_string());
-                    let mut augmented = String::new();
-                    for p in &extra_paths {
-                        if !current_path.contains(p) {
-                            augmented.push_str(p);
-                            augmented.push(':');
-                        }
+                    // macOS .app bundles inherit a minimal environment when
+                    // launched from Finder. Apply the user's full login-shell
+                    // environment so things like PATH, NODE_EXTRA_CA_CERTS,
+                    // and other profile-set variables are available.
+                    for (key, value) in shell_env() {
+                        cmd.env(key, value);
                     }
-                    // Also include common per-user locations
-                    if let Ok(home) = std::env::var("HOME") {
-                        for suffix in &[".local/bin", ".npm-global/bin"] {
-                            let user_path = format!("{home}/{suffix}");
-                            if !current_path.contains(&user_path) {
-                                augmented.push_str(&user_path);
-                                augmented.push(':');
-                            }
-                        }
-                    }
-                    augmented.push_str(&current_path);
-                    cmd.env("PATH", &augmented);
 
                     let child = match pair.slave.spawn_command(cmd) {
                         Ok(child) => child,
