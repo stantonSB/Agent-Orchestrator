@@ -70,7 +70,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setActiveSession: (id) => set({ activeSessionId: id }),
 
   createSession: async (name, cwd) => {
-    const id = await invoke<string>("create_session", { name, cwd });
+    const id = await invoke<string>("create_session", { name, cwd, command: "claude" });
     const session: SessionInfo = {
       id,
       name,

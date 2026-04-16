@@ -13,40 +13,14 @@
   min-height: 0;
 }
 
-.terminalArea {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.emptyTerminal {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-}
-
-.emptyText {
-  color: #4b5563;
-  font-size: 15px;
-  font-family: "SF Mono", "Menlo", "Monaco", monospace;
-}
-
-.emptyButton {
-  padding: 10px 20px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 6px;
-  color: #3b82f6;
-  font-size: 14px;
-  font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  cursor: pointer;
+.resizeHandle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
   transition: background-color 0.15s ease;
 }
 
-.emptyButton:hover {
-  background: rgba(59, 130, 246, 0.25);
+.resizeHandle:hover {
+  background: rgba(59, 130, 246, 0.5);
 }
