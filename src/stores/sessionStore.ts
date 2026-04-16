@@ -110,7 +110,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }),
 
   createSession: async (name, cwd) => {
-    const id = await invoke<string>("create_session", { name, cwd, command: "claude" });
+    const id = await invoke<string>("create_session", {
+      name,
+      cwd,
+      command: "claude",
+      args: ["--dangerously-skip-permissions", "--worktree"],
+    });
     const session: SessionInfo = {
       id,
       name,
