@@ -413,6 +413,21 @@ fn manager_loop(
                         match session.writer.write_all(&data) {
                             Ok(()) => {
                                 let _ = session.writer.flush();
+
+                                // Notify status tracker of user input so it can
+                                // detect Enter key presses and transition to Working.
+                                let status_change = {
+                                    let mut trackers = status_trackers.lock().unwrap();
+                                    if let Some(tracker) = trackers.get_mut(&id) {
+                                        tracker.notify_user_input(&data)
+                                    } else {
+                                        None
+                                    }
+                                };
+                                if let Some(new_status) = status_change {
+                                    on_status(id.clone(), new_status.as_str().to_string());
+                                }
+
                                 let _ = reply.send(PtyResponse::WriteOk);
                             }
                             Err(e) => {
