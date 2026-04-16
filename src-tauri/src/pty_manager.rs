@@ -247,6 +247,36 @@ fn manager_loop(
                     cmd.args(&args);
                     cmd.cwd(&cwd);
 
+                    // Augment PATH so binaries like `claude` are found when
+                    // launched from a macOS .app bundle, which inherits a
+                    // minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin).
+                    let extra_paths = [
+                        "/opt/homebrew/bin",
+                        "/opt/homebrew/sbin",
+                        "/usr/local/bin",
+                    ];
+                    let current_path =
+                        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".to_string());
+                    let mut augmented = String::new();
+                    for p in &extra_paths {
+                        if !current_path.contains(p) {
+                            augmented.push_str(p);
+                            augmented.push(':');
+                        }
+                    }
+                    // Also include common per-user locations
+                    if let Ok(home) = std::env::var("HOME") {
+                        for suffix in &[".local/bin", ".npm-global/bin"] {
+                            let user_path = format!("{home}/{suffix}");
+                            if !current_path.contains(&user_path) {
+                                augmented.push_str(&user_path);
+                                augmented.push(':');
+                            }
+                        }
+                    }
+                    augmented.push_str(&current_path);
+                    cmd.env("PATH", &augmented);
+
                     let child = match pair.slave.spawn_command(cmd) {
                         Ok(child) => child,
                         Err(e) => {
