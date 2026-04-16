@@ -1,0 +1,14 @@
+.duration {
+  font-family: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.active {
+  color: #9ca3af;
+}
+
+.inactive {
+  color: #4b5563;
+}

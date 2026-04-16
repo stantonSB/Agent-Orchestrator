@@ -1,0 +1,43 @@
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: slideIn 0.2s ease-out;
+  max-width: 420px;
+}
+.error {
+  background-color: #451a1a;
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+}
+.warning {
+  background-color: #451a00;
+  border: 1px solid #7c2d12;
+  color: #fdba74;
+}
+.info {
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+}
+.message { flex: 1; }
+.dismissBtn {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.dismissBtn:hover { opacity: 1; }
+@keyframes slideIn {
+  from { transform: translateY(-12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

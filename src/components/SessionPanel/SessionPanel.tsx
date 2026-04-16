@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { SessionInfo } from "../../types/session";
+import { useSessionStore } from "../../stores/sessionStore";
 import { SessionCard } from "../SessionCard/SessionCard";
 import { NewSessionButton } from "../NewSessionButton/NewSessionButton";
 import styles from "./SessionPanel.module.css";
@@ -19,6 +20,9 @@ export function SessionPanel({
   onNewSession,
   style,
 }: SessionPanelProps) {
+  const closeSession = useSessionStore((s) => s.closeSession);
+  const dismissSession = useSessionStore((s) => s.dismissSession);
+
   return (
     <div className={styles.panel} style={style}>
       <div className={styles.header}>Sessions</div>
@@ -33,6 +37,8 @@ export function SessionPanel({
               session={session}
               isActive={session.id === activeSessionId}
               onClick={onSessionClick}
+              onClose={closeSession}
+              onDismiss={dismissSession}
             />
           ))}
         </div>

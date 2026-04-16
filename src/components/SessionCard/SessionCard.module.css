@@ -8,6 +8,8 @@
   border: 1px solid transparent;
   transition: background-color 0.15s ease, border-color 0.15s ease;
   user-select: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .card:hover {
@@ -50,6 +52,16 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nameRow .name {
   flex: 1;
 }
 

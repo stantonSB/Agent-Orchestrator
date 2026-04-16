@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { SessionInfo, SessionStatus } from "../types/session";
+import type { ToastData } from "../components/Toast/Toast";
 
 interface SessionState {
   sessions: Map<string, SessionInfo>;
@@ -15,10 +16,18 @@ interface SessionState {
   updateSessionStatus: (id: string, status: SessionStatus) => void;
   setActiveSession: (id: string) => void;
 
+  // Session management
+  dismissSession: (id: string) => void;
+
   // Tauri IPC actions
   createSession: (name: string, cwd: string) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
+
+  // Toast notifications
+  toasts: ToastData[];
+  addToast: (message: string, type: ToastData["type"]) => void;
+  dismissToast: (id: string) => void;
 
   // Event listener management
   setupEventListeners: (sessionId: string) => void;
@@ -30,6 +39,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   activeSessionId: null,
   lastUsedDirectory: null,
+  toasts: [],
+
+  addToast: (message, type) => {
+    const id = crypto.randomUUID();
+    set((state) => ({
+      toasts: [...state.toasts, { id, message, type }],
+    }));
+  },
+
+  dismissToast: (id) => {
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    }));
+  },
 
   setLastUsedDirectory: (dir) => set({ lastUsedDirectory: dir }),
 
@@ -68,6 +91,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }),
 
   setActiveSession: (id) => set({ activeSessionId: id }),
+
+  dismissSession: (id) =>
+    set((state) => {
+      const next = new Map(state.sessions);
+      next.delete(id);
+      const cleanups = eventCleanups.get(id);
+      if (cleanups) {
+        cleanups.forEach((unlisten) => unlisten());
+        eventCleanups.delete(id);
+      }
+      let activeSessionId = state.activeSessionId;
+      if (activeSessionId === id) {
+        const remaining = Array.from(next.keys());
+        activeSessionId = remaining.length > 0 ? remaining[0] : null;
+      }
+      return { sessions: next, activeSessionId };
+    }),
 
   createSession: async (name, cwd) => {
     const id = await invoke<string>("create_session", { name, cwd, command: "claude" });

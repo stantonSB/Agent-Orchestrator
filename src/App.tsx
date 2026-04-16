@@ -1,15 +1,25 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useSessionStore } from "./stores/sessionStore";
 import { TitleBar } from "./components/TitleBar/TitleBar";
 import { SessionPanel } from "./components/SessionPanel/SessionPanel";
 import { NewSessionModal } from "./components/NewSessionModal/NewSessionModal";
 import { TerminalArea } from "./components/TerminalArea/TerminalArea";
+import { ToastContainer } from "./components/ToastContainer/ToastContainer";
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
 import styles from "./App.module.css";
 
 export function App() {
   useInitializeSessions();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const addToast = useSessionStore((s) => s.addToast);
+
+  useEffect(() => {
+    const unlisten = listen<{ error: string }>("spawn-error", (event) => {
+      addToast(event.payload.error, "error");
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [addToast]);
   const [panelWidth, setPanelWidth] = useState(300);
   const isDragging = useRef(false);
 
@@ -87,6 +97,7 @@ export function App() {
         onCreate={handleCreateSession}
         lastUsedDirectory={lastUsedDirectory}
       />
+      <ToastContainer />
     </div>
   );
 }

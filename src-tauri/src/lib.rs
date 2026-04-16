@@ -1,6 +1,10 @@
 pub mod commands;
 pub mod pty_manager;
 pub mod state;
+pub mod status_parser;
+
+#[cfg(test)]
+mod status_parser_tests;
 
 use state::AppState;
 use tauri::{Emitter, Manager};
@@ -11,6 +15,7 @@ pub fn run() {
         .setup(|app| {
             let handle_for_output = app.handle().clone();
             let handle_for_exit = app.handle().clone();
+            let handle_for_status = app.handle().clone();
 
             let on_output: pty_manager::OutputCallback =
                 Box::new(move |id, data| {
@@ -24,7 +29,16 @@ pub fn run() {
                     let _ = handle_for_exit.emit(&event_name, code);
                 });
 
-            let pty_handle = pty_manager::start(on_output, on_exit);
+            let on_status: pty_manager::StatusCallback =
+                Box::new(move |id, status| {
+                    let event_name = format!("session-status-{}", id);
+                    let _ = handle_for_status.emit(
+                        &event_name,
+                        serde_json::json!({ "status": status }),
+                    );
+                });
+
+            let pty_handle = pty_manager::start(on_output, on_exit, on_status);
             app.manage(AppState { pty: pty_handle });
 
             Ok(())
@@ -38,6 +52,13 @@ pub fn run() {
             commands::rename_session,
             commands::list_sessions,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    state.pty.shutdown();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
