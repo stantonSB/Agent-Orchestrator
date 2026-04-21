@@ -121,6 +121,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       name,
       status: "starting",
       createdAt: Date.now(),
+      cwd,
     };
     get().addSession(session);
     get().setActiveSession(id);

@@ -11,4 +11,5 @@ export interface SessionInfo {
   name: string;
   status: SessionStatus;
   createdAt: number; // unix timestamp ms
+  cwd: string; // working directory path
 }
