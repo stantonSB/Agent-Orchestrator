@@ -157,10 +157,10 @@ mod tests {
         tracker.notify_user_input(b"fix the bug\r");
         assert_eq!(*tracker.status(), SessionStatus::Working);
 
-        // Simulate Claude outputting then going quiet.
-        tracker.feed_output(b"I'll fix the bug now.\nDone!\n");
+        // Simulate Claude outputting then showing idle prompt.
+        tracker.feed_output(b"I'll fix the bug now.\nDone!\n\xe2\x9d\xaf\n");
 
-        let future = Instant::now() + Duration::from_secs(4);
+        let future = Instant::now() + Duration::from_secs(3);
         let change = tracker.tick_with_time(future);
         assert_eq!(change, Some(SessionStatus::Finished));
         assert_eq!(*tracker.status(), SessionStatus::Finished);
@@ -170,9 +170,10 @@ mod tests {
     fn test_tick_no_change_while_finished() {
         let mut tracker = StatusTracker::new();
         tracker.notify_user_input(b"\r");
-        tracker.feed_output(b"done");
+        // Include idle prompt so Finished triggers at 2s via prompt detection
+        tracker.feed_output(b"done\n\xe2\x9d\xaf\n");
         // Simulate time passing to reach Finished.
-        let future = Instant::now() + Duration::from_secs(4);
+        let future = Instant::now() + Duration::from_secs(3);
         tracker.tick_with_time(future);
         assert_eq!(*tracker.status(), SessionStatus::Finished);
 
@@ -321,8 +322,8 @@ mod tests {
         let mut tracker = StatusTracker::new();
         // First task cycle.
         tracker.notify_user_input(b"task one\r");
-        tracker.feed_output(b"Done.\n");
-        let t1 = Instant::now() + Duration::from_secs(4);
+        tracker.feed_output(b"Done.\n\xe2\x9d\xaf\n");
+        let t1 = Instant::now() + Duration::from_secs(3);
         tracker.tick_with_time(t1); // → Finished
         assert_eq!(*tracker.status(), SessionStatus::Finished);
 
@@ -399,9 +400,9 @@ mod tests {
         tracker.notify_user_input(b"y\r");
         assert_eq!(*tracker.status(), SessionStatus::Working);
 
-        // 8. Claude finishes
-        tracker.feed_output(b"Fix applied successfully.\n");
-        let t3 = Instant::now() + Duration::from_secs(4);
+        // 8. Claude finishes (idle prompt appears)
+        tracker.feed_output(b"Fix applied successfully.\n\xe2\x9d\xaf\n");
+        let t3 = Instant::now() + Duration::from_secs(3);
         tracker.tick_with_time(t3);
         assert_eq!(*tracker.status(), SessionStatus::Finished);
 
@@ -422,5 +423,199 @@ mod tests {
         assert_eq!(SessionStatus::NeedsAttention.as_str(), "needs_attention");
         assert_eq!(SessionStatus::Finished.as_str(), "finished");
         assert_eq!(SessionStatus::Error.as_str(), "error");
+    }
+
+    // -----------------------------------------------------------------------
+    // Spinner keepalive
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_spinner_keepalive_prevents_finished() {
+        let mut tracker = StatusTracker::new();
+        let t0 = Instant::now();
+        tracker.notify_user_input(b"\r");
+
+        // Feed spinner character at t0+1s
+        let t1 = t0 + Duration::from_secs(1);
+        tracker.feed_output_with_time("Working ✳ doing stuff".as_bytes(), t1);
+
+        // Check at t1+1s (within 1.5s of spinner) — should stay Working
+        // even though output is 4s old from the user input perspective
+        let t2 = t1 + Duration::from_secs(1);
+        let change = tracker.tick_with_time(t2);
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    #[test]
+    fn test_spinner_keepalive_expires() {
+        let mut tracker = StatusTracker::new();
+        let t0 = Instant::now();
+        tracker.notify_user_input(b"\r");
+
+        // Feed spinner character
+        let t1 = t0 + Duration::from_secs(1);
+        tracker.feed_output_with_time("Working ✳ doing stuff\n❯\n".as_bytes(), t1);
+
+        // Check at t1+2s (>1.5s since spinner) — spinner keepalive expired,
+        // idle prompt present, should transition to Finished
+        let t2 = t1 + Duration::from_secs(2);
+        let change = tracker.tick_with_time(t2);
+        assert_eq!(change, Some(SessionStatus::Finished));
+    }
+
+    // -----------------------------------------------------------------------
+    // Idle prompt detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_idle_prompt_triggers_finished() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_user_input(b"\r");
+        // Feed output with idle prompt (❯ = U+276F = 0xE2 0x9D 0xAF in UTF-8)
+        tracker.feed_output(b"All done.\n\xe2\x9d\xaf\n");
+
+        let future = Instant::now() + Duration::from_secs(3);
+        let change = tracker.tick_with_time(future);
+        assert_eq!(change, Some(SessionStatus::Finished));
+    }
+
+    #[test]
+    fn test_idle_prompt_not_matched_with_text() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_user_input(b"\r");
+        // Feed output where ❯ is followed by text (user input history) — NOT idle prompt
+        tracker.feed_output("All done.\n❯ fix bug\n".as_bytes());
+
+        // At 3s, no idle prompt detected, not yet 8s → stays Working
+        let future = Instant::now() + Duration::from_secs(3);
+        let change = tracker.tick_with_time(future);
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    // -----------------------------------------------------------------------
+    // Fallback timeout and regression tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_no_false_finished_at_3s() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_user_input(b"\r");
+        // Regular output with no idle prompt, no spinner
+        tracker.feed_output(b"Working on it...\n");
+
+        // At 3s — should NOT transition to Finished (regression test)
+        let future = Instant::now() + Duration::from_secs(3);
+        let change = tracker.tick_with_time(future);
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    #[test]
+    fn test_fallback_timeout_8s() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_user_input(b"\r");
+        // Regular output with no idle prompt, no spinner
+        tracker.feed_output(b"Working on it...\n");
+
+        // At 9s — should fall back to Finished
+        let future = Instant::now() + Duration::from_secs(9);
+        let change = tracker.tick_with_time(future);
+        assert_eq!(change, Some(SessionStatus::Finished));
+    }
+
+    // -----------------------------------------------------------------------
+    // NeedsAttention priority and expanded patterns
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_needs_attention_priority_over_prompt() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_user_input(b"\r");
+        // Buffer has both a question pattern AND idle prompt
+        tracker.feed_output("Do you want to proceed? (y/n) \n❯\n".as_bytes());
+
+        let future = Instant::now() + Duration::from_secs(3);
+        let change = tracker.tick_with_time(future);
+        // NeedsAttention should win over Finished
+        assert_eq!(change, Some(SessionStatus::NeedsAttention));
+    }
+
+    #[test]
+    fn test_expanded_needs_attention_patterns() {
+        let patterns = [
+            "Claude needs your permission to continue.",
+            "This tool needs your approval before running.",
+            "This action needs your attention right now.",
+            "do you want to proceed? Press y to confirm.",
+        ];
+
+        for pattern in &patterns {
+            let mut tracker = StatusTracker::new();
+            tracker.notify_user_input(b"\r");
+            tracker.feed_output(pattern.as_bytes());
+
+            let future = Instant::now() + Duration::from_secs(3);
+            let change = tracker.tick_with_time(future);
+            assert_eq!(
+                change,
+                Some(SessionStatus::NeedsAttention),
+                "Pattern '{}' should trigger NeedsAttention",
+                pattern
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Spinner reset on user input and state transitions
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_notify_user_input_resets_spinner() {
+        let mut tracker = StatusTracker::new();
+        let t0 = Instant::now();
+        tracker.notify_user_input(b"\r");
+
+        // Feed spinner
+        let t1 = t0 + Duration::from_secs(1);
+        tracker.feed_output_with_time("✳ working".as_bytes(), t1);
+
+        // User sends input — should clear spinner timestamp
+        tracker.notify_user_input(b"y\r");
+
+        // Feed idle prompt after user input (no spinner this time)
+        tracker.feed_output(b"Done\n\xe2\x9d\xaf\n");
+
+        // Wait 2s — spinner was reset, so idle prompt should trigger Finished
+        let t2 = Instant::now() + Duration::from_secs(3);
+        let change = tracker.tick_with_time(t2);
+        assert_eq!(change, Some(SessionStatus::Finished));
+    }
+
+    #[test]
+    fn test_finished_to_working_clears_spinner() {
+        let mut tracker = StatusTracker::new();
+        let t0 = Instant::now();
+
+        // First cycle: get to Finished with spinner
+        tracker.notify_user_input(b"\r");
+        let t1 = t0 + Duration::from_secs(1);
+        tracker.feed_output_with_time("✳ working\n❯\n".as_bytes(), t1);
+        let t2 = t1 + Duration::from_secs(3);
+        tracker.tick_with_time(t2); // → Finished
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+
+        // Start new cycle — notify_user_input should clear spinner
+        tracker.notify_user_input(b"new task\r");
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+
+        // Feed non-spinner output with idle prompt
+        tracker.feed_output(b"Result\n\xe2\x9d\xaf\n");
+
+        // At 3s — no spinner keepalive should interfere, prompt triggers Finished
+        let t3 = Instant::now() + Duration::from_secs(3);
+        let change = tracker.tick_with_time(t3);
+        assert_eq!(change, Some(SessionStatus::Finished));
     }
 }
