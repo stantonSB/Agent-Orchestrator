@@ -59,6 +59,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-right: 16px;
 }
 
 .nameRow .name {
