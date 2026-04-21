@@ -34,12 +34,18 @@ Claude Code displays animated spinner characters while actively working:
 **Excluded**: `*` (U+002A) is NOT included in spinner detection because it appears frequently in code output (`/** comments */`, pointer operations, glob patterns, etc.) and would cause false keepalive signals.
 
 ```rust
-const SPINNER_CHARS: &[char] = &['·', '✢', '✳', '✶', '✻', '✽', '●'];
+const SPINNER_CHARS: &[char] = &[
+    '·', '✢', '✳', '✶', '✻', '✽', '●',
+    // Braille spinner characters used by Claude Code's progress indicators
+    '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏',
+];
 ```
 
 **Rule**: If spinner characters appeared in output recently (within ~1.5s), Claude is actively working — do not transition away from `Working` state regardless of any timeout.
 
-**Why this matters**: Claude Code's spinner produces tiny PTY writes at ~80-120ms intervals. These keep `last_output_at` fresh, preventing premature transitions. However, when the spinner stops (e.g., Claude transitions from thinking to outputting real content), there can be a brief gap before real output begins. The spinner keepalive covers this gap — it says "Claude was recently in a spinner/thinking state, so even though output stopped momentarily, it's still working." Without this, the 2s prompt-detection or 8s fallback could fire during the spinner-to-content transition.
+**Why this matters**: Claude Code's spinner produces tiny PTY writes at ~80-120ms intervals. These keep `last_output_at` fresh, preventing premature transitions. However, when the spinner stops (e.g., Claude transitions from thinking to outputting real content), there can be a brief gap before real output begins. The spinner keepalive covers this gap — it says "Claude was recently in a spinner/thinking state, so even though output stopped momentarily, it's still working." Without this, the 2s prompt-detection or 60s fallback could fire during the spinner-to-content transition.
+
+**Braille characters**: Claude Code uses braille pattern characters (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) for its "thinking" and subagent progress spinners. These are distinct from the decorative spinners and must also be detected to prevent premature Finished during subagent execution and API calls.
 
 **Implementation**: Track a `last_spinner_at: Option<Instant>` timestamp. In `feed_output()`, scan incoming data (as UTF-8) for spinner characters and update the timestamp. In `tick_with_time()`, check if the last spinner was within 1.5s — if so, skip all Working transitions. Reset `last_spinner_at` to `None` in `notify_user_input()` to prevent stale spinner timestamps from a previous work cycle affecting the next one.
 
@@ -72,7 +78,7 @@ These are added to the existing `check_needs_attention()` method after the curre
 
 ### Signal 4: Fallback Timeout
 
-**Rule**: If output has been quiet for ≥8s with no spinner activity, no prompt detected, and no question pattern — transition to `Finished`. This handles edge cases where both spinner and prompt detection fail.
+**Rule**: If output has been quiet for ≥60s with no spinner activity, no prompt detected, and no question pattern — transition to `Finished`. This is a conservative safety net for truly degenerate cases (e.g., terminal corruption preventing prompt detection). Claude Code's PTY output can legitimately go quiet for 10-30s during API calls, subagent transitions, and extended thinking.
 
 ## State Machine: Working Transitions
 
@@ -83,7 +89,7 @@ Priority order (evaluated top-to-bottom in `tick_with_time()`):
 | 1 | `last_spinner_at` within 1.5s | Stay **Working** (early return) |
 | 2 | Output quiet ≥ 2s + question/permission pattern | **NeedsAttention** |
 | 3 | Output quiet ≥ 2s + idle prompt detected + no question pattern | **Finished** |
-| 4 | Output quiet ≥ 8s (no spinner, no prompt) | **Finished** |
+| 4 | Output quiet ≥ 60s (no spinner, no prompt) | **Finished** |
 
 ## Unchanged Behavior
 
@@ -115,12 +121,15 @@ pub struct StatusTracker {
 In `feed_output()`, after extending the buffer, scan the incoming `data` as a UTF-8 string for spinner characters:
 
 ```rust
-const SPINNER_CHARS: &[char] = &['·', '✢', '✳', '✶', '✻', '✽', '●'];
+const SPINNER_CHARS: &[char] = &[
+    '·', '✢', '✳', '✶', '✻', '✽', '●',
+    '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏',
+];
 ```
 
 If any spinner character is found, set `last_spinner_at = Some(Instant::now())`.
 
-Note: `*` is deliberately excluded — it appears in code comments, globs, pointer operations, and many other contexts, causing false keepalive signals.
+Note: `*` is deliberately excluded — it appears in code comments, globs, pointer operations, and many other contexts, causing false keepalive signals. Braille characters (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) are included because Claude Code uses them for thinking/progress spinners.
 
 ### Idle Prompt Detection
 
