@@ -1,7 +1,7 @@
 # Session Status Detection: Fix Premature Finished State
 
 **Date**: 2026-04-21
-**Status**: Approved
+**Status**: Approved (revised after spec review)
 
 ## Problem
 
@@ -27,23 +27,32 @@ Replace the simple timeout with a multi-signal approach that combines spinner ke
 
 Claude Code displays animated spinner characters while actively working:
 - macOS: `·`, `✢`, `✳`, `✶`, `✻`, `✽`
-- Ghostty: `·`, `✢`, `✳`, `✶`, `✻`, `*`
-- Linux: `·`, `✢`, `*`, `✶`, `✻`, `✽`
+- Ghostty: `·`, `✢`, `✳`, `✶`, `✻` (uses `*` but we exclude it — see below)
+- Linux: `·`, `✢`, `✶`, `✻`, `✽` (uses `*` but we exclude it)
 - Reduced motion: `●`
+
+**Excluded**: `*` (U+002A) is NOT included in spinner detection because it appears frequently in code output (`/** comments */`, pointer operations, glob patterns, etc.) and would cause false keepalive signals.
+
+```rust
+const SPINNER_CHARS: &[char] = &['·', '✢', '✳', '✶', '✻', '✽', '●'];
+```
 
 **Rule**: If spinner characters appeared in output recently (within ~1.5s), Claude is actively working — do not transition away from `Working` state regardless of any timeout.
 
-**Implementation**: Track a `last_spinner_at: Option<Instant>` timestamp. In `feed_output()`, scan incoming bytes for spinner characters and update the timestamp. In `tick_with_time()`, check if the last spinner was within 1.5s — if so, skip all Working transitions.
+**Why this matters**: Claude Code's spinner produces tiny PTY writes at ~80-120ms intervals. These keep `last_output_at` fresh, preventing premature transitions. However, when the spinner stops (e.g., Claude transitions from thinking to outputting real content), there can be a brief gap before real output begins. The spinner keepalive covers this gap — it says "Claude was recently in a spinner/thinking state, so even though output stopped momentarily, it's still working." Without this, the 2s prompt-detection or 8s fallback could fire during the spinner-to-content transition.
+
+**Implementation**: Track a `last_spinner_at: Option<Instant>` timestamp. In `feed_output()`, scan incoming data (as UTF-8) for spinner characters and update the timestamp. In `tick_with_time()`, check if the last spinner was within 1.5s — if so, skip all Working transitions. Reset `last_spinner_at` to `None` in `notify_user_input()` to prevent stale spinner timestamps from a previous work cycle affecting the next one.
 
 ### Signal 2: Idle Prompt Detection (for Finished)
 
 When Claude Code completes a task and is ready for new input, it renders the idle prompt:
 - `❯` (U+276F, "HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT") on macOS/Unicode terminals
-- `>` (U+003E) on non-Unicode/Windows fallback terminals
 
-**Rule**: Transition `Working → Finished` when output has been quiet for ≥2s AND the idle prompt `❯` is detected in the buffer AND no question/permission pattern is present.
+**Excluded**: `>` (U+003E) is NOT used for idle prompt detection because it appears too frequently in terminal output — shell prompts in subprocesses, `git log` output, quoted text, markdown, etc. Non-Unicode terminals that use `>` as the Claude Code prompt will fall back to the 8s timeout (Signal 4), which is acceptable since this is a rare edge case (Agent Orchestrator targets macOS).
 
-**Implementation**: Add a `check_idle_prompt()` method that scans the ANSI-stripped buffer for `❯` or `>` at the start of a line (after optional whitespace). Only transition to `Finished` via prompt detection or the 8s fallback.
+**Rule**: Transition `Working → Finished` when output has been quiet for ≥2s AND the last non-empty line in the buffer consists of only the `❯` character (with optional surrounding whitespace) AND no question/permission pattern is present.
+
+**Implementation**: Add a `check_idle_prompt()` method that scans the ANSI-stripped buffer. Find the last non-empty line, trim it, and check if it equals `❯` (the prompt character alone, not just starts-with). This prevents false matches on lines like `❯ some text` which would be user input history, not the idle prompt.
 
 ### Signal 3: Expanded NeedsAttention Patterns (for Blocked)
 
@@ -53,11 +62,13 @@ Existing patterns (keep all):
 - Contains `(y/n)`, `(yes/no)`, `[Y/n]`, `[y/N]`, `[Y/N]`
 - Contains `AskUserQuestion`
 
-New patterns to add:
-- Contains `Do you want to proceed?`
+New patterns to add (string contains checks on ANSI-stripped, lowercased buffer):
+- Contains `do you want to proceed?`
 - Contains `needs your permission`
 - Contains `needs your approval`
 - Contains `needs your attention`
+
+These are added to the existing `check_needs_attention()` method after the current checks, as additional `if lower.contains(...)` branches returning `true`.
 
 ### Signal 4: Fallback Timeout
 
@@ -101,13 +112,15 @@ pub struct StatusTracker {
 
 ### Spinner Character Detection
 
-In `feed_output()`, after extending the buffer, scan the incoming `data` bytes for spinner characters. Since these are multi-byte UTF-8 characters, scan the data as a UTF-8 string:
+In `feed_output()`, after extending the buffer, scan the incoming `data` as a UTF-8 string for spinner characters:
 
 ```rust
-const SPINNER_CHARS: &[char] = &['·', '✢', '✳', '✶', '✻', '✽', '●', '*'];
+const SPINNER_CHARS: &[char] = &['·', '✢', '✳', '✶', '✻', '✽', '●'];
 ```
 
-Note: `*` is also a common code character, but in the context of spinner detection it only matters if it appeared recently AND output then went quiet — a `*` in flowing code output won't trigger any transition since `last_output_at` keeps resetting.
+If any spinner character is found, set `last_spinner_at = Some(Instant::now())`.
+
+Note: `*` is deliberately excluded — it appears in code comments, globs, pointer operations, and many other contexts, causing false keepalive signals.
 
 ### Idle Prompt Detection
 
@@ -116,16 +129,22 @@ New method `check_idle_prompt()`:
 fn check_idle_prompt(&self) -> bool {
     let text = String::from_utf8_lossy(&self.buffer);
     let stripped = strip_ansi_escapes(&text);
-    // Check if any non-empty line starts with ❯ or > (the idle prompt)
+    // Check if the last non-empty line IS the idle prompt character (alone)
     stripped.lines().rev()
         .find(|line| !line.trim().is_empty())
         .map(|line| {
-            let trimmed = line.trim_start();
-            trimmed.starts_with('❯') || trimmed.starts_with('>')
+            let trimmed = line.trim();
+            trimmed == "❯" || trimmed == "❯ "
         })
         .unwrap_or(false)
 }
 ```
+
+Only `❯` (U+276F) is matched — not `>`. The line must contain only the prompt character (with optional trailing space and surrounding whitespace) to avoid false matches on user input history lines like `❯ fix the bug`.
+
+### Updated notify_user_input()
+
+In addition to the existing resets (`last_output_at`, buffer clear), also reset `last_spinner_at = None` to prevent stale spinner timestamps from a previous work cycle affecting transitions in the next cycle.
 
 ### Updated tick_with_time() for Working State
 
