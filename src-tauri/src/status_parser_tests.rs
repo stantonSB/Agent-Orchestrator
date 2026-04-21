@@ -448,6 +448,23 @@ mod tests {
     }
 
     #[test]
+    fn test_braille_spinner_keepalive_prevents_finished() {
+        let mut tracker = StatusTracker::new();
+        let t0 = Instant::now();
+        tracker.notify_user_input(b"\r");
+
+        // Feed braille spinner character (used by Claude Code's thinking indicator)
+        let t1 = t0 + Duration::from_secs(1);
+        tracker.feed_output_with_time("⠋ thinking...".as_bytes(), t1);
+
+        // Check at t1+1s (within 1.5s of spinner) — should stay Working
+        let t2 = t1 + Duration::from_secs(1);
+        let change = tracker.tick_with_time(t2);
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    #[test]
     fn test_spinner_keepalive_expires() {
         let mut tracker = StatusTracker::new();
         let t0 = Instant::now();
@@ -499,6 +516,20 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn test_no_false_finished_at_8s() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_user_input(b"\r");
+        tracker.feed_output(b"Working on it...\n");
+
+        // At 8s — should NOT transition to Finished (regression test for
+        // premature Finished during API calls and subagent execution)
+        let future = Instant::now() + Duration::from_secs(8);
+        let change = tracker.tick_with_time(future);
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    #[test]
     fn test_no_false_finished_at_3s() {
         let mut tracker = StatusTracker::new();
         tracker.notify_user_input(b"\r");
@@ -513,15 +544,21 @@ mod tests {
     }
 
     #[test]
-    fn test_fallback_timeout_8s() {
+    fn test_fallback_timeout_60s() {
         let mut tracker = StatusTracker::new();
         tracker.notify_user_input(b"\r");
         // Regular output with no idle prompt, no spinner
         tracker.feed_output(b"Working on it...\n");
 
-        // At 9s — should fall back to Finished
-        let future = Instant::now() + Duration::from_secs(9);
-        let change = tracker.tick_with_time(future);
+        // At 30s — should NOT fall back to Finished yet
+        let future_30 = Instant::now() + Duration::from_secs(30);
+        let change = tracker.tick_with_time(future_30);
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+
+        // At 61s — should fall back to Finished
+        let future_61 = Instant::now() + Duration::from_secs(61);
+        let change = tracker.tick_with_time(future_61);
         assert_eq!(change, Some(SessionStatus::Finished));
     }
 

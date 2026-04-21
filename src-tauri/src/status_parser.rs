@@ -31,14 +31,21 @@ impl SessionStatus {
 /// State machine:
 ///   Starting  → Idle      (output settles after startup, user hasn't submitted)
 ///   Idle      → Working   (user presses Enter)
-///   Working   → Finished  (idle prompt detected after 2s, or fallback 8s timeout)
+///   Working   → Finished  (idle prompt detected after 2s, or fallback 60s timeout)
 ///   Working   → NeedsAttention (output stops for 2s, question/approval pattern)
 ///   NeedsAttention → Working (user presses Enter to answer)
 ///   Finished  → Working   (user presses Enter for new task)
 ///   Any       → Finished/Error (process exits)
 /// Spinner characters used by Claude Code to indicate active work.
+/// Includes both the decorative spinners (✢✳✶✻✽●) and the braille
+/// spinner characters (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) that Claude Code uses for its
+/// "thinking" and progress animations.
 /// Excludes `*` (U+002A) which appears in code comments, globs, etc.
-const SPINNER_CHARS: &[char] = &['·', '✢', '✳', '✶', '✻', '✽', '●'];
+const SPINNER_CHARS: &[char] = &[
+    '·', '✢', '✳', '✶', '✻', '✽', '●',
+    // Braille spinner characters used by Claude Code's progress indicators
+    '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏',
+];
 
 pub struct StatusTracker {
     buffer: Vec<u8>,
@@ -185,8 +192,13 @@ impl StatusTracker {
                 {
                     self.status = SessionStatus::Finished;
                 }
-                // Signal 4: Fallback (8s quiet, no signals)
-                else if elapsed.as_secs() >= 8 {
+                // Signal 4: Fallback (60s quiet, no signals)
+                // This is a conservative safety net for truly degenerate cases
+                // (e.g., terminal corruption preventing prompt detection).
+                // Normal completion is detected via idle prompt (Signal 3).
+                // Claude Code's PTY output can legitimately go quiet for 10-30s
+                // during API calls, subagent transitions, and extended thinking.
+                else if elapsed.as_secs() >= 60 {
                     self.status = SessionStatus::Finished;
                 }
             }
