@@ -38,7 +38,7 @@ interface XTermInstanceProps {
 
 export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>(
   function XTermInstance({ sessionId: _sessionId, onData, onResize, mockMode, isActive }, ref) {
-    const { containerRef, write, fit } = useTerminal({
+    const { containerRef, write, fit, getTerminal } = useTerminal({
       onData,
       onResize,
       mockMode,
@@ -53,15 +53,18 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
     useEffect(() => {
       if (isActive && !prevActive.current) {
         // Small delay so the browser can lay out the now-visible container
-        requestAnimationFrame(() => fit());
+        requestAnimationFrame(() => {
+          fit();
+          getTerminal()?.focus();
+        });
       }
       prevActive.current = isActive;
-    }, [isActive, fit]);
+    }, [isActive, fit, getTerminal]);
 
-    const className = [styles.container, !isActive ? styles.hidden : ""]
+    const className = [styles.container, isActive ? styles.active : "", !isActive ? styles.hidden : ""]
       .filter(Boolean)
       .join(" ");
 
-    return <div className={className} ref={containerRef} />;
+    return <div className={className} ref={containerRef} onClick={() => getTerminal()?.focus()} />;
   },
 );

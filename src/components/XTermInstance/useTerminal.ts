@@ -9,10 +9,10 @@ import "@xterm/xterm/css/xterm.css";
 // ---------------------------------------------------------------------------
 
 const THEME = {
-  background: "#1a1b26",
+  background: "#1a1a2e",
   foreground: "#a9b1d6",
   cursor: "#c0caf5",
-  cursorAccent: "#1a1b26",
+  cursorAccent: "#1a1a2e",
   selectionBackground: "#33467c",
   selectionForeground: "#c0caf5",
   black: "#15161e",
@@ -113,6 +113,9 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
         fitAddon.fit();
       } catch {
         // Container may not have dimensions yet — safe to ignore
+      }
+      if (container.offsetParent !== null) {
+        term.focus();
       }
     });
 

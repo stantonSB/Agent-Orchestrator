@@ -285,6 +285,11 @@ fn manager_loop(
                         cmd.env(key, value);
                     }
 
+                    // Override TERM/COLORTERM *after* shell_env() so that
+                    // values like "dumb" or "screen" don't leak through.
+                    cmd.env("TERM", "xterm-256color");
+                    cmd.env("COLORTERM", "truecolor");
+
                     let child = match pair.slave.spawn_command(cmd) {
                         Ok(child) => child,
                         Err(e) => {
