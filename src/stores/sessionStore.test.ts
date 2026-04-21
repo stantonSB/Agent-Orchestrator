@@ -26,6 +26,7 @@ describe("sessionStore", () => {
         name: "Test Session",
         status: "starting",
         createdAt: Date.now(),
+        cwd: "/test/path",
       });
 
       const { sessions } = useSessionStore.getState();
@@ -42,6 +43,7 @@ describe("sessionStore", () => {
         name: "Test",
         status: "idle",
         createdAt: Date.now(),
+        cwd: "/test/path",
       });
       store.removeSession("abc-123");
 
@@ -56,6 +58,7 @@ describe("sessionStore", () => {
         name: "Test",
         status: "idle",
         createdAt: Date.now(),
+        cwd: "/test/path",
       });
       store.setActiveSession("abc-123");
       store.removeSession("abc-123");
@@ -73,6 +76,7 @@ describe("sessionStore", () => {
         name: "Test",
         status: "starting",
         createdAt: Date.now(),
+        cwd: "/test/path",
       });
       store.updateSessionStatus("abc-123", "working");
 
@@ -95,6 +99,7 @@ describe("sessionStore", () => {
         name: "Test",
         status: "idle",
         createdAt: Date.now(),
+        cwd: "/test/path",
       });
       store.setActiveSession("abc-123");
 
@@ -113,12 +118,15 @@ describe("sessionStore", () => {
       expect(invoke).toHaveBeenCalledWith("create_session", {
         name: "My Session",
         cwd: "/path/to/project",
+        command: "claude",
+        args: ["--dangerously-skip-permissions", "--worktree"],
       });
 
       const { sessions, activeSessionId } = useSessionStore.getState();
       expect(sessions.has("new-id-456")).toBe(true);
       expect(sessions.get("new-id-456")?.name).toBe("My Session");
       expect(sessions.get("new-id-456")?.status).toBe("starting");
+      expect(sessions.get("new-id-456")?.cwd).toBe("/path/to/project");
       expect(activeSessionId).toBe("new-id-456");
     });
   });
@@ -134,6 +142,7 @@ describe("sessionStore", () => {
         name: "Test",
         status: "idle",
         createdAt: Date.now(),
+        cwd: "/test/path",
       });
 
       await store.closeSession("abc-123");
