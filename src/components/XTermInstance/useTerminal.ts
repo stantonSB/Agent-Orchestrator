@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 
 // ---------------------------------------------------------------------------
@@ -99,7 +100,9 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     // Addons
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon((_event, uri) => {
+      openUrl(uri);
+    }));
 
     fitAddonRef.current = fitAddon;
     termRef.current = term;
