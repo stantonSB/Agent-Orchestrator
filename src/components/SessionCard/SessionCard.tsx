@@ -101,6 +101,21 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: 
           <span className={styles.status}>{STATUS_LABEL[session.status]}</span>
         </div>
         <ActivityPulse active={session.status === "working"} />
+        <button
+          className={styles.closeBtn}
+          title={isRunning(session.status) ? "Close session" : "Dismiss session"}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isRunning(session.status)) {
+              setShowCloseConfirm(true);
+            } else {
+              onDismiss?.(session.id);
+            }
+          }}
+          aria-label="Close session"
+        >
+          &#x2715;
+        </button>
       </div>
 
       {contextMenu &&
