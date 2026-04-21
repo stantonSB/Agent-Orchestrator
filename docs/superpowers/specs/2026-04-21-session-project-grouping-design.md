@@ -27,15 +27,16 @@ export interface SessionInfo {
 
 Store `cwd` when creating a session in the Zustand store. The `createSession` action already receives `cwd` as a parameter — include it in the `SessionInfo` object passed to `addSession`.
 
-The `list_sessions` backend call already returns `cwd` (as a `PathBuf`), so `useInitializeSessions` picks it up automatically with no changes needed there.
+The `list_sessions` backend call already returns `cwd` (as a Rust `PathBuf`, serialized by Serde as a plain string). Since `cwd` is already lowercase, it maps directly to the frontend field name with no rename needed. `useInitializeSessions` picks it up automatically with no changes needed there.
 
 ## Grouping Logic
 
 Grouping happens at render time in `SessionPanel`:
 
-1. **Derive project name** from each session's `cwd` by extracting the last path segment (e.g., `/Users/stanton/SProjects/Agent-Orchestrator` → `Agent-Orchestrator`).
-2. **Group sessions by project name** into an ordered map. Project groups are ordered by the newest session's `createdAt` within each group (most recently active project first).
-3. **Within each group**, sessions remain sorted by `createdAt` descending (newest first, same as current behavior).
+1. **Group sessions by full `cwd` path** — the grouping key is the complete path string, not just the folder name. This prevents sessions from different directories that share the same folder name (e.g., `/work/myapp` and `/personal/myapp`) from being incorrectly merged.
+2. **Display name** is the last path segment of the `cwd` (e.g., `/Users/stanton/SProjects/Agent-Orchestrator` → `Agent-Orchestrator`).
+3. **Group ordering**: project groups are ordered by the newest session's `createdAt` within each group (most recently active project first).
+4. **Within each group**, sessions remain sorted by `createdAt` descending (newest first, same as current behavior).
 
 ## New Component: ProjectGroup
 
@@ -46,9 +47,14 @@ A `ProjectGroup` component renders each group within `SessionPanel`:
 
 ### Collapse State
 
-- Stored in `SessionPanel` local React state: `useState<Set<string>>` tracking which project names are collapsed.
+- Stored in `SessionPanel` local React state: `useState<Set<string>>` tracking which `cwd` paths are collapsed.
 - Not persisted — all groups start expanded on app launch.
 - Clicking the header row toggles the group's collapsed state.
+
+### Accessibility
+
+- Header row has `role="button"`, `tabIndex={0}`, and `aria-expanded` reflecting collapse state.
+- Keyboard support: Enter and Space toggle collapse.
 
 ## Visual Design
 
