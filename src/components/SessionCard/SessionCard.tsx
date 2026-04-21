@@ -59,7 +59,7 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: 
       return [
         {
           label: "Dismiss",
-          onClick: () => onDismiss?.(session.id),
+          onClick: () => setShowCloseConfirm(true),
         },
       ];
     }
@@ -106,11 +106,7 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: 
           title={isRunning(session.status) ? "Close session" : "Dismiss session"}
           onClick={(e) => {
             e.stopPropagation();
-            if (isRunning(session.status)) {
-              setShowCloseConfirm(true);
-            } else {
-              onDismiss?.(session.id);
-            }
+            setShowCloseConfirm(true);
           }}
           aria-label="Close session"
         >
@@ -133,8 +129,13 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: 
         createPortal(
           <CloseConfirmDialog
             sessionName={session.name}
+            isRunning={isRunning(session.status)}
             onConfirm={() => {
-              onClose?.(session.id);
+              if (isRunning(session.status)) {
+                onClose?.(session.id);
+              } else {
+                onDismiss?.(session.id);
+              }
               setShowCloseConfirm(false);
             }}
             onCancel={() => setShowCloseConfirm(false)}
