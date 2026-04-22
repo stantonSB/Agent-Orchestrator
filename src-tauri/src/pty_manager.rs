@@ -342,21 +342,9 @@ fn manager_loop(
                                         let data = buf[..n].to_vec();
                                         cb(reader_id.clone(), data.clone());
 
-                                        // Feed output to the status tracker.
-                                        let status_change = {
-                                            let mut trackers = trackers_for_reader.lock().unwrap();
-                                            if let Some(tracker) = trackers.get_mut(&reader_id) {
-                                                tracker.feed_output(&data)
-                                            } else {
-                                                None
-                                            }
-                                        };
-                                        if let Some(new_status) = status_change {
-                                            status_cb(
-                                                reader_id.clone(),
-                                                new_status.as_str().to_string(),
-                                            );
-                                        }
+                                        // NOTE: output-based status transitions have been removed.
+                                        // Status is now driven by hook events (see notify_hook_event).
+                                        // TODO(task-13): wire up hook-based status updates here.
                                     }
                                     Err(e) => {
                                         if e.kind() != std::io::ErrorKind::Other {
@@ -526,13 +514,10 @@ fn manager_loop(
             },
 
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Tick all active status trackers to detect idle/needs_attention.
-                let mut trackers = status_trackers.lock().unwrap();
-                for (id, tracker) in trackers.iter_mut() {
-                    if let Some(new_status) = tracker.tick() {
-                        on_status(id.clone(), new_status.as_str().to_string());
-                    }
-                }
+                // NOTE: tick-based status polling has been removed.
+                // Status is now driven by hook events (see notify_hook_event).
+                // TODO(task-13): remove this timeout arm or repurpose it.
+                let _ = &status_trackers;
             }
 
             Err(mpsc::RecvTimeoutError::Disconnected) => {
