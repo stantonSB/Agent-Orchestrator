@@ -32,7 +32,7 @@ impl SessionStatus {
 ///   Working        → Finished        (idle_prompt hook)
 ///   Working        → NeedsAttention  (permission_prompt / elicitation_dialog hook)
 ///   NeedsAttention → Finished        (idle_prompt hook)
-///   Idle / Finished / NeedsAttention → Working (user presses Enter)
+///   Starting / Idle / Finished / NeedsAttention → Working (user presses Enter)
 ///   Any            → Finished / Error (process exits)
 pub struct StatusTracker {
     status: SessionStatus,
@@ -79,13 +79,21 @@ impl StatusTracker {
     /// Notify the tracker that the user sent input to the PTY.
     ///
     /// If the input contains Enter (carriage return or newline), transitions
-    /// to Working from Idle, Finished, or NeedsAttention.
+    /// to Working from Starting, Idle, Finished, or NeedsAttention.
+    ///
+    /// Starting is included because Claude Code does not fire an `idle_prompt`
+    /// notification on initial startup — only after processing at least one
+    /// message.  Without this transition the status would stay "Starting"
+    /// for the entire first request/response cycle.
     pub fn notify_user_input(&mut self, data: &[u8]) -> Option<SessionStatus> {
         if !data.contains(&b'\r') && !data.contains(&b'\n') {
             return None;
         }
         match self.status {
-            SessionStatus::Idle | SessionStatus::Finished | SessionStatus::NeedsAttention => {
+            SessionStatus::Starting
+            | SessionStatus::Idle
+            | SessionStatus::Finished
+            | SessionStatus::NeedsAttention => {
                 self.status = SessionStatus::Working;
                 Some(SessionStatus::Working)
             }
