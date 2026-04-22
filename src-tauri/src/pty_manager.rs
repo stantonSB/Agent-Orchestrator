@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Capture the user's full login-shell environment.
 ///
@@ -213,6 +213,8 @@ pub fn start(
     on_output: OutputCallback,
     on_exit: ExitCallback,
     on_status: StatusCallback,
+    status_trackers: Arc<Mutex<HashMap<SessionId, StatusTracker>>>,
+    status_port: u16,
 ) -> PtyManagerHandle {
     let (tx, rx) = mpsc::channel::<PtyRequest>();
 
@@ -220,14 +222,10 @@ pub fn start(
     let on_exit = Arc::new(on_exit);
     let on_status = Arc::new(on_status);
 
-    // Shared status trackers accessible from both manager and reader threads.
-    let status_trackers: Arc<Mutex<HashMap<SessionId, StatusTracker>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
     thread::Builder::new()
         .name("pty-manager".into())
         .spawn(move || {
-            manager_loop(rx, on_output, on_exit, on_status, status_trackers);
+            manager_loop(rx, on_output, on_exit, on_status, status_trackers, status_port);
         })
         .expect("failed to spawn PTY manager thread");
 
@@ -240,12 +238,13 @@ fn manager_loop(
     on_exit: Arc<ExitCallback>,
     on_status: Arc<StatusCallback>,
     status_trackers: Arc<Mutex<HashMap<SessionId, StatusTracker>>>,
+    status_port: u16,
 ) {
     let mut sessions: HashMap<SessionId, Session> = HashMap::new();
     let pty_system = native_pty_system();
 
     loop {
-        match rx.recv_timeout(Duration::from_secs(1)) {
+        match rx.recv() {
             Ok(request) => match request {
                 PtyRequest::Create {
                     name,
@@ -289,6 +288,11 @@ fn manager_loop(
                     // values like "dumb" or "screen" don't leak through.
                     cmd.env("TERM", "xterm-256color");
                     cmd.env("COLORTERM", "truecolor");
+
+                    // Pass session identity and status server port so that
+                    // Claude Code hook scripts can report status back to us.
+                    cmd.env("AO_SESSION_ID", &id);
+                    cmd.env("AO_STATUS_PORT", status_port.to_string());
 
                     let child = match pair.slave.spawn_command(cmd) {
                         Ok(child) => child,
@@ -340,11 +344,7 @@ fn manager_loop(
                                     Ok(0) => break,
                                     Ok(n) => {
                                         let data = buf[..n].to_vec();
-                                        cb(reader_id.clone(), data.clone());
-
-                                        // NOTE: output-based status transitions have been removed.
-                                        // Status is now driven by hook events (see notify_hook_event).
-                                        // TODO(task-13): wire up hook-based status updates here.
+                                        cb(reader_id.clone(), data);
                                     }
                                     Err(e) => {
                                         if e.kind() != std::io::ErrorKind::Other {
@@ -513,14 +513,8 @@ fn manager_loop(
                 }
             },
 
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // NOTE: tick-based status polling has been removed.
-                // Status is now driven by hook events (see notify_hook_event).
-                // TODO(task-13): remove this timeout arm or repurpose it.
-                let _ = &status_trackers;
-            }
-
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(_) => {
+                // Sender disconnected; shut down cleanly.
                 break;
             }
         }
@@ -548,6 +542,8 @@ mod tests {
         let ol = output_log.clone();
         let el = exit_log.clone();
 
+        let status_trackers = Arc::new(Mutex::new(HashMap::new()));
+
         let handle = start(
             Box::new(move |id, data| {
                 ol.lock().unwrap().push((id, data));
@@ -556,6 +552,8 @@ mod tests {
                 el.lock().unwrap().push((id, code));
             }),
             Box::new(|_id, _status| {}),
+            status_trackers,
+            0, // status_port: 0 means no status server in tests
         );
 
         (handle, output_log, exit_log)
