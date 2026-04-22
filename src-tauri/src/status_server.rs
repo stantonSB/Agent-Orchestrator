@@ -114,13 +114,6 @@ fn handle_request(
         }
     };
 
-    // Extract session_id from body (for the callback).
-    let session_id = json
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&ao_session_id)
-        .to_string();
-
     // Look up tracker and apply the event.
     let transition = {
         let mut map = trackers.lock().unwrap();
@@ -136,7 +129,10 @@ fn handle_request(
 
     match transition {
         Some(new_status) => {
-            on_status(session_id, new_status.as_str().to_string());
+            // Use ao_session_id (from URL path) — this is the Agent Orchestrator
+            // session ID that the frontend listens on, NOT the Claude Code
+            // session_id from the JSON body.
+            on_status(ao_session_id, new_status.as_str().to_string());
             let _ = request.respond(tiny_http::Response::empty(200));
         }
         None => {
