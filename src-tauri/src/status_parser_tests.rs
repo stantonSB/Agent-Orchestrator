@@ -227,11 +227,11 @@ mod tests {
     }
 
     #[test]
-    fn test_enter_from_starting_returns_none() {
+    fn test_enter_from_starting_transitions_to_working() {
         let mut tracker = StatusTracker::new();
         let change = tracker.notify_user_input(b"hello\r");
-        assert_eq!(change, None);
-        assert_eq!(*tracker.status(), SessionStatus::Starting);
+        assert_eq!(change, Some(SessionStatus::Working));
+        assert_eq!(*tracker.status(), SessionStatus::Working);
     }
 
     #[test]

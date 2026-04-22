@@ -162,6 +162,7 @@ fn merge_hook_settings(settings_path: &Path) -> Result<(), String> {
     }
 
     let our_entry = serde_json::json!({
+        "matcher": "",
         "hooks": [
             {
                 "type": "command",
