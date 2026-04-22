@@ -1,12 +1,16 @@
 pub mod commands;
+pub mod hook_installer;
 pub mod pty_manager;
 pub mod state;
 pub mod status_parser;
+pub mod status_server;
 
 #[cfg(test)]
 mod status_parser_tests;
 
 use state::AppState;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -16,6 +20,22 @@ pub fn run() {
             let handle_for_output = app.handle().clone();
             let handle_for_exit = app.handle().clone();
             let handle_for_status = app.handle().clone();
+            let handle_for_hook = app.handle().clone();
+
+            // Install Claude Code notification hooks. Emit a warning event if
+            // installation fails, but do not block startup.
+            match hook_installer::ensure_hooks_installed() {
+                hook_installer::HookInstallResult::Installed => {
+                    eprintln!("[agent-orchestrator] Hook scripts installed.");
+                }
+                hook_installer::HookInstallResult::AlreadyInstalled => {
+                    // Nothing to do.
+                }
+                hook_installer::HookInstallResult::Failed(err) => {
+                    eprintln!("[agent-orchestrator] Hook installation failed: {err}");
+                    let _ = handle_for_hook.emit("hook-setup-failed", serde_json::json!({ "error": err }));
+                }
+            }
 
             let on_output: pty_manager::OutputCallback =
                 Box::new(move |id, data| {
@@ -44,8 +64,37 @@ pub fn run() {
                     );
                 });
 
-            let pty_handle = pty_manager::start(on_output, on_exit, on_status);
-            app.manage(AppState { pty: pty_handle });
+            // Create shared status trackers — used by both the PTY manager
+            // (to insert/remove trackers per session) and the HTTP status
+            // server (to receive hook events and update tracker state).
+            let status_trackers: Arc<Mutex<HashMap<String, status_parser::StatusTracker>>> =
+                Arc::new(Mutex::new(HashMap::new()));
+
+            // Wrap on_status in an Arc so it can be shared with the status server.
+            let on_status_arc: Arc<pty_manager::StatusCallback> = Arc::new(on_status);
+            let on_status_for_server = on_status_arc.clone();
+
+            // Start the HTTP status server. It receives POST requests from
+            // Claude Code hook scripts and fires the on_status callback.
+            let (status_server, status_port) =
+                status_server::StatusServer::start(status_trackers.clone(), on_status_for_server);
+
+            // Start the PTY manager, giving it the shared trackers and the
+            // port so newly spawned sessions get the correct env vars.
+            let pty_handle = pty_manager::start(
+                on_output,
+                on_exit,
+                // The on_status callback is wrapped; we need to pass a plain Box.
+                // Unwrap the Arc by cloning the inner closure via a thin wrapper.
+                Box::new(move |id, status| on_status_arc(id, status)),
+                status_trackers,
+                status_port,
+            );
+
+            app.manage(AppState {
+                pty: pty_handle,
+                status_server,
+            });
 
             Ok(())
         })
@@ -63,6 +112,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if let Some(state) = window.try_state::<AppState>() {
                     state.pty.shutdown();
+                    state.status_server.stop();
                 }
             }
         })

@@ -122,13 +122,18 @@ fn test_write_not_found() {
 // ---------------------------------------------------------------------------
 
 fn make_handle() -> tauri_app_lib::pty_manager::PtyManagerHandle {
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+    use tauri_app_lib::status_parser::StatusTracker;
 
     let ol: Arc<Mutex<Vec<(String, Vec<u8>)>>> = Arc::new(Mutex::new(Vec::new()));
     let el: Arc<Mutex<Vec<(String, Option<u32>)>>> = Arc::new(Mutex::new(Vec::new()));
 
     let ol_c = ol.clone();
     let el_c = el.clone();
+
+    let status_trackers: Arc<Mutex<HashMap<String, StatusTracker>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     tauri_app_lib::pty_manager::start(
         Box::new(move |id, data| {
@@ -138,5 +143,7 @@ fn make_handle() -> tauri_app_lib::pty_manager::PtyManagerHandle {
             el_c.lock().unwrap().push((id, code));
         }),
         Box::new(|_id, _status| {}),
+        status_trackers,
+        0, // status_port: 0 means no status server in tests
     )
 }
