@@ -93,12 +93,32 @@ Extract `notification_type` from the JSON body and `ao_session_id` from the URL 
 |---|---|---|
 | `idle_prompt` | `starting` | `idle` |
 | `idle_prompt` | `working` | `finished` |
+| `idle_prompt` | `needs_attention` | `finished` |
 | `permission_prompt` | `working` | `needs_attention` |
+| `permission_prompt` | `starting` | `needs_attention` |
 | `elicitation_dialog` | `working` | `needs_attention` |
+| `elicitation_dialog` | `starting` | `needs_attention` |
+
+The `idle_prompt` from `needs_attention` transition handles the case where the user grants permission directly in the Claude Code terminal (bypassing Agent Orchestrator's PTY write path) and Claude finishes the work. The `permission_prompt` / `elicitation_dialog` from `starting` transitions handle sessions launched with an initial task that immediately hits a permission prompt before reaching idle.
 
 Ignore notifications that don't match a valid transition (e.g., `idle_prompt` when already `idle`).
 
 On state change, emit `session-status-{ao_session_id}` Tauri event with `{ "status": "<new_status>" }`.
+
+### Response Codes
+
+- `200` — Status transition accepted and applied
+- `204` — Notification received but no transition (ignored, e.g., duplicate or irrelevant state)
+- `400` — Malformed JSON or missing `notification_type`
+- `404` — Unknown `ao_session_id`
+
+### Thread Access
+
+The HTTP server shares the existing `Arc<Mutex<HashMap<SessionId, StatusTracker>>>` with the PTY manager. On receiving a request, it locks the map, finds the tracker by `ao_session_id`, calls `notify_hook_event()`, and if a transition occurs, emits the Tauri event. This reuses the same concurrency pattern already established for the PTY reader threads.
+
+### Shutdown
+
+The HTTP server is stopped during app close (alongside PTY cleanup). The `tiny_http::Server` supports `unblock()` to break the accept loop, allowing clean shutdown from the Tauri `on_window_event(CloseRequested)` handler.
 
 ### Implementation
 
@@ -123,6 +143,7 @@ The script:
 - Forwards the hook's stdin JSON to the HTTP server
 - Silently no-ops if env vars are missing or the server is unreachable
 - Uses `|| true` to prevent hook failure from affecting Claude Code
+- Depends on `curl` which is pre-installed on macOS. This is a macOS-only app (Tauri desktop), so this is acceptable.
 
 ## Hook Configuration
 
@@ -151,7 +172,7 @@ No matcher specified — captures all notification types. The HTTP server determ
 
 ### Idle Threshold
 
-Added to `~/.claude.json`:
+Added to `~/.claude.json` (the user profile config file, separate from `~/.claude/settings.json` which holds hooks/permissions):
 
 ```json
 {
@@ -159,7 +180,7 @@ Added to `~/.claude.json`:
 }
 ```
 
-This configures Claude Code to fire `idle_prompt` 500ms after becoming idle, rather than the default 60 seconds. The 500ms delay is Claude Code's own idle detection — it fires only when Claude Code has genuinely finished processing.
+This configures Claude Code to fire `idle_prompt` 500ms after becoming idle, rather than the default 60 seconds. The 500ms delay is Claude Code's own idle detection — it fires only when Claude Code has genuinely finished processing. Note: `messageIdleNotifThresholdMs` is a Claude Code profile setting (in `~/.claude.json`) while hooks are configured in `~/.claude/settings.json` — these are two different files per Claude Code's config hierarchy.
 
 ### Per-Session Environment Variables
 
@@ -205,6 +226,10 @@ If installation fails at any step:
 
 Installation is idempotent. Running it multiple times produces the same result. The check-before-install prevents unnecessary writes.
 
+### Concurrency
+
+Installation runs at app startup, before any Claude Code sessions are spawned. This avoids write conflicts with running Claude Code instances that may also read `~/.claude/settings.json`.
+
 ## Revised State Machine
 
 ### States
@@ -218,13 +243,21 @@ All event-driven, zero timeouts:
 | Event Source | Event | From | To |
 |---|---|---|---|
 | PTY spawn | Process created | — | `starting` |
-| HTTP server | `idle_prompt` (first) | `starting` | `idle` |
+| HTTP server | `idle_prompt` | `starting` | `idle` |
 | HTTP server | `idle_prompt` | `working` | `finished` |
+| HTTP server | `idle_prompt` | `needs_attention` | `finished` |
 | HTTP server | `permission_prompt` | `working` | `needs_attention` |
+| HTTP server | `permission_prompt` | `starting` | `needs_attention` |
 | HTTP server | `elicitation_dialog` | `working` | `needs_attention` |
+| HTTP server | `elicitation_dialog` | `starting` | `needs_attention` |
 | PTY input | User presses Enter | `idle` / `finished` / `needs_attention` | `working` |
 | PTY reader | Process exit (code 0) | any | `finished` |
 | PTY reader | Process exit (code ≠ 0) | any | `error` |
+
+**Design notes:**
+- `idle_prompt` from `needs_attention` → `finished`: Handles the case where the user interacts with a permission/question prompt directly in the terminal (bypassing Agent Orchestrator's input path), and Claude finishes the resulting work.
+- `permission_prompt` / `elicitation_dialog` from `starting`: Handles sessions that hit a permission prompt during initialization before reaching the idle state.
+- `notify_user_input` does NOT transition from `starting` → `working`. During startup, keyboard input should not change the status — the session is still initializing. This differs from the previous implementation where Enter during `starting` forced `working`.
 
 ### StatusTracker Implementation
 
@@ -246,11 +279,11 @@ impl StatusTracker {
         let new_status = match notification_type {
             "idle_prompt" => match self.status {
                 SessionStatus::Starting => Some(SessionStatus::Idle),
-                SessionStatus::Working => Some(SessionStatus::Finished),
+                SessionStatus::Working | SessionStatus::NeedsAttention => Some(SessionStatus::Finished),
                 _ => None,
             },
             "permission_prompt" | "elicitation_dialog" => match self.status {
-                SessionStatus::Working => Some(SessionStatus::NeedsAttention),
+                SessionStatus::Working | SessionStatus::Starting => Some(SessionStatus::NeedsAttention),
                 _ => None,
             },
             _ => None,
@@ -336,4 +369,4 @@ The previous status detection spec (2026-04-21-session-status-detection-design.m
 | `src-tauri/src/lib.rs` | Start HTTP server, pass status callback |
 | `src-tauri/src/status_server.rs` | New: HTTP server module |
 | `src-tauri/src/hook_installer.rs` | New: hook installation and verification logic |
-| `src-tauri/Cargo.toml` | Add `tiny_http` and `serde_json` (if not already present) dependencies |
+| `src-tauri/Cargo.toml` | Add `tiny_http` dependency (`serde_json` already present) |
