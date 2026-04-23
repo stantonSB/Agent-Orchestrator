@@ -14,7 +14,7 @@ Add visibility into subagent activity within Agent Orchestrator. When a Claude C
 ## Non-Goals
 
 - Individual terminal output per subagent (they share the parent's PTY)
-- Recursive nesting beyond one level (grandchild subagents are invisible)
+- Hierarchical nesting beyond one level (grandchild subagents appear as flat entries, not nested)
 - Subagent creation from the UI
 
 ## Approach: Backend-Centric
@@ -31,7 +31,12 @@ Subagents are detected by observing the `session_id` field in hook JSON payloads
 
 ### Edge Case: Subagent Hook Arrives Before Parent
 
-If a subagent's hook arrives before the parent's first hook establishes the parent identity, the event is buffered. Once the parent's first hook arrives and sets the parent `session_id`, buffered events are replayed.
+The parent identity is established by the first `session_id` value seen in any hook payload for a given `AO_SESSION_ID`. Since the parent Claude Code process starts before it can dispatch subagents, its hooks will almost always arrive first. However, if a subagent's hook arrives before the parent's:
+
+- The `SubagentMap` maintains a `pending_events: Vec<(String, HookEvent)>` buffer (capped at 32 entries) for events that arrive before the parent identity is set
+- Once the parent's first hook arrives, `pending_events` are replayed in order
+- If the buffer reaches capacity, oldest events are dropped (this would indicate a pathological case)
+- There is no timeout — the buffer is cleaned up when the parent session is closed
 
 ## Data Model
 
@@ -76,16 +81,20 @@ The `is_already_installed` check is extended to verify the `SubagentStop` hook i
 
 ## Status Server Protocol
 
-The `POST /status/{ao_session_id}` endpoint accepts a third event shape:
+The `POST /status/{ao_session_id}` endpoint gains subagent-aware routing. The server uses the `session_id` field from the JSON body to distinguish parent from subagent events:
 
-```json
-{"session_id": "...", "hook_event_name": "SubagentStop", ...}
-```
+1. Extract `session_id` from the JSON body (required — return 400 if missing)
+2. Look up the `ao_session_id` in the trackers
+3. If no parent `session_id` is recorded yet, record this `session_id` as the parent and process normally
+4. If `session_id` matches the known parent, process as a parent event (existing logic)
+5. If `session_id` does not match the parent, it's a subagent — route to the `SubagentMap`
 
-The server handles this by:
-1. Looking up the `ao_session_id` in the trackers
-2. Marking the subagent with matching `session_id` as finished (if not already)
-3. Extracting any metadata (description/name) if present in the payload
+For subagent events, the routing depends on event type:
+- `notification_type` (Notification hook) → update subagent status based on notification type
+- `hook_event_name: "Stop"` → mark subagent as finished
+- `hook_event_name: "SubagentStop"` → this fires on the **parent** process, confirming a child finished. The payload's `session_id` is the parent's, so this is matched by rule 4. Any additional metadata (subagent description) is extracted if present and applied to the matching subagent entry.
+
+This means parent `Stop` vs subagent `Stop` is disambiguated entirely by `session_id` matching, not by `hook_event_name`.
 
 ## Event Emission
 
@@ -95,7 +104,26 @@ When a subagent is first detected or its status changes, the backend emits:
 session-subagents-{ao_session_id}
 ```
 
-Payload: the full list of `SubagentInfo` entries for that parent (serialized). The frontend subscribes to this alongside existing `session-status-*` events.
+Payload is a JSON array of subagent entries:
+
+```json
+[
+  {
+    "id": "claude-session-id-abc",
+    "index": 1,
+    "status": "working",
+    "name": null
+  },
+  {
+    "id": "claude-session-id-def",
+    "index": 2,
+    "status": "needs_attention",
+    "name": "Exploring codebase"
+  }
+]
+```
+
+Note: `finished_at` from the Rust `SubagentInfo` is not serialized to the frontend — it's internal to the backend for future use. The frontend subscribes to this event alongside existing `session-status-*` events.
 
 ## Status Bubbling
 
@@ -140,11 +168,15 @@ Cleanup logic lives in the Zustand store's event listener setup, not in React co
 
 ## Subagent Naming
 
-Subagent entries display a descriptive name extracted from hook data when available (e.g., the Agent tool's description field). Falls back to "Agent N" (1-based index) when no name is available.
+The primary naming strategy is the numbered fallback: "Agent 1", "Agent 2", etc. (1-based index assigned at detection time).
+
+If Claude Code hook payloads include a descriptive field (such as a `tool_name`, `description`, or similar metadata), the name is updated when first seen. However, as of the current Claude Code hook protocol, there is no guaranteed field containing a subagent description. The `SubagentStop` hook fired on the parent may include metadata about the finished subagent — if it does, the name is backfilled at that point.
+
+This is a best-effort enhancement. The numbered fallback is always available and is the documented primary behavior. If future Claude Code versions add richer hook metadata, naming can be improved without architectural changes.
 
 ## Nesting Depth
 
-One level only. If a subagent spawns its own subagents, those grandchild hooks are attributed to the direct subagent or ignored. No recursive nesting in the sidebar.
+One level only. Grandchild subagents (spawned by a subagent) are silently ignored. Their hooks will arrive with the same `AO_SESSION_ID` and a new `session_id`. The server will register them as additional subagent entries in the flat list — they appear alongside their parent subagent, not nested beneath it. This is acceptable because the user sees them as "more agents working" without needing to understand the hierarchy.
 
 ## Event Flow Lifecycle
 
