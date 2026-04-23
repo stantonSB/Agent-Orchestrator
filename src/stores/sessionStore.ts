@@ -20,7 +20,7 @@ interface SessionState {
   dismissSession: (id: string) => void;
 
   // Tauri IPC actions
-  createSession: (name: string, cwd: string) => Promise<void>;
+  createSession: (name: string, cwd: string, skipPermissions?: boolean) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
@@ -109,12 +109,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessions: next, activeSessionId };
     }),
 
-  createSession: async (name, cwd) => {
+  createSession: async (name, cwd, skipPermissions = true) => {
+    const args = ["--worktree"];
+    if (skipPermissions) {
+      args.unshift("--dangerously-skip-permissions");
+    }
     const id = await invoke<string>("create_session", {
       name,
       cwd,
       command: "claude",
-      args: ["--dangerously-skip-permissions", "--worktree"],
+      args,
     });
     const session: SessionInfo = {
       id,
