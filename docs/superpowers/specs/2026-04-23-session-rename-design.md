@@ -32,12 +32,18 @@ Sessions have a fixed name set at creation time. Users need to rename sessions a
 
 2. **SessionCard.module.css**
    - Add `.nameInput` class matching the existing `.name` font/size/weight/color with a subtle border (e.g., `1px solid rgba(99, 102, 241, 0.5)`) and minimal padding to indicate edit mode
+   - Add `user-select: text` on `.nameInput` to override the card's `user-select: none`
 
-3. **SessionPanel.tsx** (or wherever SessionCard is rendered)
-   - Pass `onRename` callback wired to `sessionStore.renameSession`
+3. **ProjectGroup.tsx**
+   - Accept `onRename` prop and forward it to each `<SessionCard>`
+   - (SessionPanel renders ProjectGroup, which renders SessionCard — so the prop must be threaded through)
 
-4. **Context menu (in SessionCard.tsx)**
+4. **SessionPanel.tsx**
+   - Pull `renameSession` from the store and pass it as `onRename` to each `<ProjectGroup>`
+
+5. **Context menu (in SessionCard.tsx)**
    - Add "Rename" item to `getContextMenuItems()` that sets `isEditing = true`
+   - "Rename" appears in all session states (running and finished/error) since it's a metadata-only operation
 
 ### Backend (no changes needed)
 
@@ -45,6 +51,6 @@ The following already exist and are fully functional:
 
 - `sessionStore.renameSession(id, name)` — Zustand action
 - `rename_session` Tauri IPC command
-- `PtyManager::rename_session` — Rust implementation
+- `PtyManagerHandle::rename` — Rust implementation
 
 This is entirely a frontend change.
