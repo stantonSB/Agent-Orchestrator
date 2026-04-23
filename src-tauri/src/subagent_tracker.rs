@@ -161,11 +161,19 @@ impl SubagentMap {
 
     fn notification_to_status(notification_type: &str, current: &SessionStatus) -> Option<SessionStatus> {
         match notification_type {
-            "idle_prompt" | "stop" => match current {
+            "stop" => match current {
                 SessionStatus::Starting => Some(SessionStatus::Idle),
                 SessionStatus::Working | SessionStatus::NeedsAttention | SessionStatus::Idle => {
                     Some(SessionStatus::Finished)
                 }
+                _ => None,
+            },
+            "idle_prompt" => match current {
+                SessionStatus::Starting => Some(SessionStatus::Idle),
+                SessionStatus::Working | SessionStatus::NeedsAttention => {
+                    Some(SessionStatus::Finished)
+                }
+                // Already Idle — no transition
                 _ => None,
             },
             "permission_prompt" | "elicitation_dialog" => match current {
