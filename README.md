@@ -2,7 +2,7 @@
 
 A desktop application for managing multiple AI agent terminal sessions with real-time status monitoring. Built with Tauri 2, React 19, and TypeScript.
 
-https://github.com/stantonSB/Agent-Orchestrator/raw/main/assets/init-2-sessions.mov
+<video src="https://github.com/stantonSB/Agent-Orchestrator/raw/main/assets/init-2-sessions.mov" controls autoplay muted loop></video>
 
 ## Installation (macOS)
 
