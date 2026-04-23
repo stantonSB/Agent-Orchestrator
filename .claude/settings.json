@@ -2,8 +2,13 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "bash scripts/setup-keybindings.sh"
+        "matcher": {},
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/setup-keybindings.sh"
+          }
+        ]
       }
     ]
   }
