@@ -32,6 +32,7 @@ impl SessionStatus {
 ///   Working        → Finished        (idle_prompt hook)
 ///   Working        → NeedsAttention  (permission_prompt / elicitation_dialog hook)
 ///   NeedsAttention → Finished        (idle_prompt hook)
+///   Starting       → Idle            (5-second startup timeout)
 ///   Starting / Idle / Finished / NeedsAttention → Working (user presses Enter)
 ///   Any            → Finished / Error (process exits)
 pub struct StatusTracker {
@@ -47,6 +48,16 @@ impl StatusTracker {
 
     pub fn status(&self) -> &SessionStatus {
         &self.status
+    }
+
+    /// Unconditionally set the status if it differs from the current value.
+    /// Returns `Some(new_status)` on change, `None` if already in that state.
+    pub fn set_status(&mut self, new_status: SessionStatus) -> Option<SessionStatus> {
+        if self.status == new_status {
+            return None;
+        }
+        self.status = new_status.clone();
+        Some(new_status)
     }
 
     /// Process a notification hook event from Claude Code.
