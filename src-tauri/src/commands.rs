@@ -114,3 +114,37 @@ pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
         other => Err(format!("Unexpected response: {:?}", other)),
     }
 }
+
+#[tauri::command]
+pub fn git_pull_main(cwd: String) -> Result<(), String> {
+    let path = PathBuf::from(&cwd);
+    if !path.exists() {
+        return Err(format!("Directory does not exist: {cwd}"));
+    }
+
+    // Checkout main branch
+    let checkout = std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to run git checkout: {e}"))?;
+
+    if !checkout.status.success() {
+        let stderr = String::from_utf8_lossy(&checkout.stderr);
+        return Err(format!("git checkout main failed: {stderr}"));
+    }
+
+    // Pull latest
+    let pull = std::process::Command::new("git")
+        .args(["pull", "origin", "main"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to run git pull: {e}"))?;
+
+    if !pull.status.success() {
+        let stderr = String::from_utf8_lossy(&pull.stderr);
+        return Err(format!("git pull origin main failed: {stderr}"));
+    }
+
+    Ok(())
+}

@@ -107,6 +107,7 @@ pub fn run() {
             commands::resize_session,
             commands::rename_session,
             commands::list_sessions,
+            commands::git_pull_main,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
