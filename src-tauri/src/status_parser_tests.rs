@@ -158,6 +158,95 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // notify_hook_event: stop transitions (Stop hook fires immediately)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_stop_from_starting_transitions_to_idle() {
+        let mut tracker = StatusTracker::new();
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, Some(SessionStatus::Idle));
+        assert_eq!(*tracker.status(), SessionStatus::Idle);
+    }
+
+    #[test]
+    fn test_stop_from_working_transitions_to_finished() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, Some(SessionStatus::Finished));
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+    }
+
+    #[test]
+    fn test_stop_from_needs_attention_transitions_to_finished() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+        tracker.notify_hook_event("permission_prompt"); // Working → NeedsAttention
+        assert_eq!(*tracker.status(), SessionStatus::NeedsAttention);
+
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, Some(SessionStatus::Finished));
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+    }
+
+    #[test]
+    fn test_stop_when_already_idle_returns_none() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        assert_eq!(*tracker.status(), SessionStatus::Idle);
+
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Idle);
+    }
+
+    #[test]
+    fn test_stop_when_already_finished_returns_none() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+        tracker.notify_hook_event("stop"); // Working → Finished
+
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+    }
+
+    #[test]
+    fn test_full_lifecycle_with_stop_hook() {
+        let mut tracker = StatusTracker::new();
+
+        // 1. Starting
+        assert_eq!(*tracker.status(), SessionStatus::Starting);
+
+        // 2. Stop hook fires on first response → Idle
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, Some(SessionStatus::Idle));
+
+        // 3. User submits task → Working
+        tracker.notify_user_input(b"fix the bug\r");
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+
+        // 4. Claude finishes immediately (Stop hook) → Finished
+        let change = tracker.notify_hook_event("stop");
+        assert_eq!(change, Some(SessionStatus::Finished));
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+
+        // 5. User starts new task → Working again
+        tracker.notify_user_input(b"now tests\r");
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+
+        // 6. Finished again via stop
+        tracker.notify_hook_event("stop");
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+    }
+
+    // -----------------------------------------------------------------------
     // notify_hook_event: unknown notification type
     // -----------------------------------------------------------------------
 

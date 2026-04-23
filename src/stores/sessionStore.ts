@@ -161,8 +161,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     );
 
     cleanups.push(
-      listen<{ exitCode: number }>(`session-exit-${sessionId}`, (event) => {
-        const status: SessionStatus = event.payload.exitCode === 0 ? "finished" : "error";
+      listen<{ code: number | null }>(`session-exit-${sessionId}`, (event) => {
+        const status: SessionStatus = event.payload.code === 0 ? "finished" : "error";
         get().updateSessionStatus(sessionId, status);
       })
     );
