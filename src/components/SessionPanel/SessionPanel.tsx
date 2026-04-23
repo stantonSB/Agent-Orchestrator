@@ -19,14 +19,14 @@ function getProjectName(cwd: string): string {
   return segments[segments.length - 1] || cwd;
 }
 
-interface ProjectGroupData {
+export interface ProjectGroupData {
   cwd: string;
   displayName: string;
   sessions: SessionInfo[];
   newestCreatedAt: number;
 }
 
-function groupSessionsByProject(sessions: SessionInfo[]): ProjectGroupData[] {
+export function groupSessionsByProject(sessions: SessionInfo[]): ProjectGroupData[] {
   const groups = new Map<string, ProjectGroupData>();
 
   for (const session of sessions) {
