@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { useSessionStore } from "./stores/sessionStore";
 import { TitleBar } from "./components/TitleBar/TitleBar";
-import { SessionPanel } from "./components/SessionPanel/SessionPanel";
+import { SessionPanel, groupSessionsByProject } from "./components/SessionPanel/SessionPanel";
 import { NewSessionModal } from "./components/NewSessionModal/NewSessionModal";
 import { TerminalArea } from "./components/TerminalArea/TerminalArea";
 import { ToastContainer } from "./components/ToastContainer/ToastContainer";
@@ -59,16 +59,31 @@ export function App() {
     setShowCloseConfirm(false);
   }, [activeSession, activeIsRunning, closeSession, dismissSession]);
 
-  useGlobalKeybindings({
-    onNewSession: handleNewSession,
-    onCloseActiveSession: handleCloseActiveSession,
-  });
-
   const sessionList = useMemo(() => {
     return Array.from(sessions.values()).sort(
       (a, b) => b.createdAt - a.createdAt
     );
   }, [sessions]);
+
+  const orderedSessionIds = useMemo(() => {
+    const groups = groupSessionsByProject(sessionList);
+    return groups.flatMap((group) => group.sessions.map((s) => s.id));
+  }, [sessionList]);
+
+  const handleSwitchToSession = useCallback(
+    (index: number) => {
+      if (index < orderedSessionIds.length) {
+        setActiveSession(orderedSessionIds[index]);
+      }
+    },
+    [orderedSessionIds, setActiveSession],
+  );
+
+  useGlobalKeybindings({
+    onNewSession: handleNewSession,
+    onCloseActiveSession: handleCloseActiveSession,
+    onSwitchToSession: handleSwitchToSession,
+  });
 
   const handleCreateSession = async (name: string, cwd: string) => {
     setIsModalOpen(false);
