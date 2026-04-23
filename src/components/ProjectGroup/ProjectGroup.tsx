@@ -11,6 +11,7 @@ interface ProjectGroupProps {
   onSessionClick: (id: string) => void;
   onClose: (id: string) => Promise<void>;
   onDismiss: (id: string) => void;
+  onRename?: (id: string, name: string) => void;
 }
 
 export function ProjectGroup({
@@ -22,6 +23,7 @@ export function ProjectGroup({
   onSessionClick,
   onClose,
   onDismiss,
+  onRename,
 }: ProjectGroupProps) {
   return (
     <div className={styles.group}>
@@ -54,6 +56,7 @@ export function ProjectGroup({
               onClick={onSessionClick}
               onClose={onClose}
               onDismiss={onDismiss}
+              onRename={onRename}
             />
           ))}
         </div>

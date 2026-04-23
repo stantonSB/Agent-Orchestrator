@@ -75,6 +75,20 @@
   text-overflow: ellipsis;
 }
 
+.nameInput {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  border-radius: 4px;
+  padding: 0 4px;
+  outline: none;
+  font-family: inherit;
+  width: 100%;
+  user-select: text;
+}
+
 .status {
   font-size: 11px;
   color: #9ca3af;

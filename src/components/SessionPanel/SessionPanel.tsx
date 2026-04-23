@@ -68,6 +68,7 @@ export function SessionPanel({
 }: SessionPanelProps) {
   const closeSession = useSessionStore((s) => s.closeSession);
   const dismissSession = useSessionStore((s) => s.dismissSession);
+  const renameSession = useSessionStore((s) => s.renameSession);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const projectGroups = useMemo(() => groupSessionsByProject(sessions), [sessions]);
@@ -103,6 +104,7 @@ export function SessionPanel({
               onSessionClick={onSessionClick}
               onClose={closeSession}
               onDismiss={dismissSession}
+              onRename={renameSession}
             />
           ))}
         </div>
