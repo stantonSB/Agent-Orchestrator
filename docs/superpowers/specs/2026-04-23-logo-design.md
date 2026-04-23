@@ -73,14 +73,14 @@ When paired with the app name:
 
 ## Implementation Scope
 
-1. Create SVG logo file(s) in the project assets
-2. Replace Tauri app icon (macOS .icns generation)
-3. Update any in-app references to the old logo
-4. Update favicon if applicable
+1. Create a master 1024x1024 PNG from the SVG design
+2. Run `cargo tauri icon` to generate all icon variants in `src-tauri/icons/`
+3. Replace the broken favicon in `index.html` — currently references a nonexistent `/vite.svg`
+4. Update the page title in `index.html` from "Tauri + React + Typescript" to "Agent Orchestrator"
+5. Windows Store icons (`Square*.png`, `StoreLogo.png`) can be ignored — project only targets macOS
 
 ## Files to Modify
 
-- `src-tauri/icons/` — Tauri app icons (various sizes, .icns, .ico, .png)
-- `src/assets/` — Any in-app logo references
-- `index.html` — Favicon if present
-- `src-tauri/tauri.conf.json` — Icon configuration if needed
+- `src-tauri/icons/` — Replace all Tauri default icons via `cargo tauri icon` (generates .icns, .ico, and all PNGs)
+- `index.html` — Fix broken favicon reference (`/vite.svg` does not exist) and update page title
+- `src-tauri/tauri.conf.json` — No changes needed; existing icon paths in `bundle.icon` already reference the correct filenames
