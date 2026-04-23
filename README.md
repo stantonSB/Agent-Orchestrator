@@ -96,18 +96,15 @@ Claude Code may have fired a `permission_prompt` or `elicitation_dialog` hook. S
 - **Backend:** Rust, Tauri 2, portable-pty, tiny_http
 - **Packaging:** Tauri bundler (DMG + .app)
 
-## Glossary
+## Documentation
 
-| Term | Definition |
-|------|------------|
-| **PTY** | Pseudo-terminal — an OS-level construct that emulates a hardware terminal, used to run each Claude Code session. |
-| **Hook** | A Claude Code extension point that fires a shell script on specific events (e.g., idle, permission prompt, task stop). |
-| **Session** | A single Claude Code agent running in its own PTY, tracked by a UUID (`AO_SESSION_ID`). |
-| **Status** | One of six states a session can be in: Starting, Working, Idle, Needs Attention, Finished, or Error. |
-| **Worktree** | A git feature that checks out a branch into a separate directory, giving each session an isolated copy of the repo. |
-| **IPC** | Inter-Process Communication — the Tauri mechanism the React frontend uses to call Rust backend functions. |
-| **Env capture** | On startup, the app runs `$SHELL -li -c env` to capture the user's full login-shell environment so `.app` bundles have access to tools like `claude` and `node`. |
-| **Gatekeeper** | macOS security feature that blocks unsigned apps downloaded from the internet. |
+| Document | Description |
+|----------|-------------|
+| [`docs/INDEX.md`](docs/INDEX.md) | Full index of all design specs, implementation plans, and backlog items |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Prerequisites, setup, building, testing, releasing, and IDE configuration |
+| [`CLAUDE.md`](CLAUDE.md) | AI assistant instructions — architecture overview, conventions, and file layout |
+| [`docs/future-phases/tech-debt.md`](docs/future-phases/tech-debt.md) | Known tech debt: error handling, validation, and test gaps |
+| [`docs/future-phases/nested-subagent-terminals.md`](docs/future-phases/nested-subagent-terminals.md) | Future feature design for subagent tabs within parent sessions |
 
 ## Development
 
