@@ -1,7 +1,9 @@
-# Session Status Detection: Fix Premature Finished State
+# ~~Session Status Detection: Fix Premature Finished State~~ [SUPERSEDED]
 
 **Date**: 2026-04-21
-**Status**: Approved (revised after spec review)
+**Status**: SUPERSEDED by [Session Status via Hooks](./2026-04-22-session-status-hooks-design.md)
+
+> **Note:** This spec proposed heuristic-based status detection (spinner parsing, prompt detection, timeouts). It was fully replaced by hook-driven detection, which is authoritative and zero-timeout. This file is kept for historical reference only — do not implement from this spec.
 
 ## Problem
 
