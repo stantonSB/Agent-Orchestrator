@@ -68,69 +68,6 @@ Then open the app normally. This only needs to be done once after downloading.
 
 The PTY manager runs on a dedicated OS thread (required by `portable-pty` — handles aren't `Send`/`Sync`). All communication happens via mpsc channels. The app captures the user's full login-shell environment on startup so that sessions spawned from the `.app` bundle have access to `claude`, `node`, custom certs, etc.
 
-## Prerequisites (Development)
-
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
-- [Xcode Command Line Tools](https://developer.apple.com/xcode/) (macOS)
-
-## Setup
-
-```bash
-npm install
-```
-
-## Development
-
-```bash
-# Start the app in development mode (hot-reload enabled)
-npm run tauri dev
-```
-
-## Testing
-
-```bash
-# Frontend tests (Vitest + React Testing Library)
-npx vitest run
-
-# Backend tests (Rust)
-cd src-tauri && cargo test
-```
-
-## Building
-
-### Build the app + DMG installer (macOS)
-
-```bash
-npm run tauri build
-```
-
-Output files:
-
-- **App bundle:** `src-tauri/target/release/bundle/macos/Agent Orchestrator.app`
-- **DMG installer:** `src-tauri/target/release/bundle/dmg/Agent Orchestrator_<version>_aarch64.dmg`
-
-> The architecture suffix will be `aarch64` on Apple Silicon or `x86_64` on Intel Macs.
-
-### Frontend only
-
-```bash
-# Type-check and build the frontend
-npm run build
-
-# Preview the frontend build
-npm run preview
-```
-
-## Releasing
-
-```bash
-# Bump version, tag, and push
-npm run release:patch   # 0.1.1 → 0.1.2
-npm run release:minor   # 0.1.1 → 0.2.0
-npm run release:major   # 0.1.1 → 1.0.0
-```
-
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -159,6 +96,19 @@ Claude Code may have fired a `permission_prompt` or `elicitation_dialog` hook. S
 - **Backend:** Rust, Tauri 2, portable-pty, tiny_http
 - **Packaging:** Tauri bundler (DMG + .app)
 
-## IDE Setup
+## Glossary
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+| Term | Definition |
+|------|------------|
+| **PTY** | Pseudo-terminal — an OS-level construct that emulates a hardware terminal, used to run each Claude Code session. |
+| **Hook** | A Claude Code extension point that fires a shell script on specific events (e.g., idle, permission prompt, task stop). |
+| **Session** | A single Claude Code agent running in its own PTY, tracked by a UUID (`AO_SESSION_ID`). |
+| **Status** | One of six states a session can be in: Starting, Working, Idle, Needs Attention, Finished, or Error. |
+| **Worktree** | A git feature that checks out a branch into a separate directory, giving each session an isolated copy of the repo. |
+| **IPC** | Inter-Process Communication — the Tauri mechanism the React frontend uses to call Rust backend functions. |
+| **Env capture** | On startup, the app runs `$SHELL -li -c env` to capture the user's full login-shell environment so `.app` bundles have access to tools like `claude` and `node`. |
+| **Gatekeeper** | macOS security feature that blocks unsigned apps downloaded from the internet. |
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for setup, building, testing, releasing, and IDE configuration.
