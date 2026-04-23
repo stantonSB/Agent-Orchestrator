@@ -247,6 +247,81 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // notify_user_input: Escape key transitions (Working → Finished)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_escape_from_working_transitions_to_finished() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+
+        let change = tracker.notify_user_input(b"\x1b");
+        assert_eq!(change, Some(SessionStatus::Finished));
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+    }
+
+    #[test]
+    fn test_escape_from_idle_returns_none() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+
+        let change = tracker.notify_user_input(b"\x1b");
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Idle);
+    }
+
+    #[test]
+    fn test_escape_from_starting_returns_none() {
+        let mut tracker = StatusTracker::new();
+        let change = tracker.notify_user_input(b"\x1b");
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Starting);
+    }
+
+    #[test]
+    fn test_escape_from_finished_returns_none() {
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+        tracker.notify_hook_event("stop"); // Working → Finished
+
+        let change = tracker.notify_user_input(b"\x1b");
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+    }
+
+    #[test]
+    fn test_escape_sequence_does_not_trigger_transition() {
+        // Arrow keys and other escape sequences are multi-byte, should not
+        // be confused with a bare Escape press.
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+
+        // Arrow Up: ESC [ A
+        let change = tracker.notify_user_input(b"\x1b[A");
+        assert_eq!(change, None);
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    #[test]
+    fn test_escape_then_new_task() {
+        // After interrupting, user can start a new task.
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+
+        tracker.notify_user_input(b"\x1b"); // Working → Finished
+        assert_eq!(*tracker.status(), SessionStatus::Finished);
+
+        let change = tracker.notify_user_input(b"new task\r");
+        assert_eq!(change, Some(SessionStatus::Working));
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+    }
+
+    // -----------------------------------------------------------------------
     // notify_hook_event: unknown notification type
     // -----------------------------------------------------------------------
 

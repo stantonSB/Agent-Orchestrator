@@ -30,6 +30,7 @@ impl SessionStatus {
 ///   Starting       → Idle            (idle_prompt hook or stop hook)
 ///   Starting       → NeedsAttention  (permission_prompt / elicitation_dialog hook)
 ///   Working        → Finished        (idle_prompt hook or stop hook)
+///   Working        → Finished        (user presses Escape to interrupt)
 ///   Working        → NeedsAttention  (permission_prompt / elicitation_dialog hook)
 ///   NeedsAttention → Finished        (idle_prompt hook)
 ///   Starting       → Idle            (5-second startup timeout)
@@ -94,11 +95,29 @@ impl StatusTracker {
     /// If the input contains Enter (carriage return or newline), transitions
     /// to Working from Starting, Idle, Finished, or NeedsAttention.
     ///
+    /// If the input is a bare Escape key (single `\x1b` byte, not part of an
+    /// escape sequence), transitions from Working → Finished.  This handles
+    /// the case where the user presses Escape to interrupt Claude Code — the
+    /// Stop hook does not fire reliably on user-initiated interrupts.
+    ///
     /// Starting is included because Claude Code does not fire an `idle_prompt`
     /// notification on initial startup — only after processing at least one
     /// message.  Without this transition the status would stay "Starting"
     /// for the entire first request/response cycle.
     pub fn notify_user_input(&mut self, data: &[u8]) -> Option<SessionStatus> {
+        // Bare Escape key (not part of a multi-byte escape sequence like arrow keys).
+        // When the user presses Escape while Claude is working, it interrupts the
+        // agent and returns to the prompt.
+        if data == [0x1b] {
+            return match self.status {
+                SessionStatus::Working => {
+                    self.status = SessionStatus::Finished;
+                    Some(SessionStatus::Finished)
+                }
+                _ => None,
+            };
+        }
+
         if !data.contains(&b'\r') && !data.contains(&b'\n') {
             return None;
         }
