@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfo, SessionStatus } from "../../types/session";
 import { ActivityPulse } from "../ActivityPulse/ActivityPulse";
@@ -13,6 +13,7 @@ interface SessionCardProps {
   onClick: (id: string) => void;
   onClose?: (id: string) => void;
   onDismiss?: (id: string) => void;
+  onRename?: (id: string, name: string) => void;
 }
 
 const STATUS_DOT_CLASS: Record<SessionStatus, string> = {
@@ -37,9 +38,11 @@ function isRunning(status: SessionStatus): boolean {
   return status !== "finished" && status !== "error";
 }
 
-export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: SessionCardProps) {
+export function SessionCard({ session, isActive, onClick, onClose, onDismiss, onRename }: SessionCardProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const savingRef = useRef(false);
 
   const cardClass = [
     styles.card,
@@ -55,21 +58,27 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: 
   }
 
   function getContextMenuItems() {
+    const renameItem = { label: "Rename", onClick: () => { savingRef.current = false; setIsEditing(true); } };
     if (!isRunning(session.status)) {
       return [
-        {
-          label: "Dismiss",
-          onClick: () => setShowCloseConfirm(true),
-        },
+        renameItem,
+        { label: "Dismiss", onClick: () => setShowCloseConfirm(true) },
       ];
     }
     return [
-      {
-        label: "Close Session",
-        danger: true,
-        onClick: () => setShowCloseConfirm(true),
-      },
+      renameItem,
+      { label: "Close Session", danger: true, onClick: () => setShowCloseConfirm(true) },
     ];
+  }
+
+  function handleRename(newName: string) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const trimmed = newName.trim();
+    if (trimmed && trimmed.length <= 50 && trimmed !== session.name) {
+      onRename?.(session.id, trimmed);
+    }
+    setIsEditing(false);
   }
 
   return (
@@ -95,7 +104,36 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss }: 
         )}
         <div className={styles.info}>
           <div className={styles.nameRow}>
-            <span className={styles.name}>{session.name}</span>
+            {isEditing ? (
+              <input
+                className={styles.nameInput}
+                defaultValue={session.name}
+                maxLength={50}
+                autoFocus
+                onFocus={(e) => e.target.select()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") {
+                    handleRename(e.currentTarget.value);
+                  } else if (e.key === "Escape") {
+                    setIsEditing(false);
+                  }
+                }}
+                onBlur={(e) => handleRename(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span
+                className={styles.name}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  savingRef.current = false;
+                  setIsEditing(true);
+                }}
+              >
+                {session.name}
+              </span>
+            )}
             <DurationTimer createdAt={session.createdAt} active={isRunning(session.status)} />
           </div>
           <span className={styles.status}>{STATUS_LABEL[session.status]}</span>
