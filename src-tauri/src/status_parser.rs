@@ -1,3 +1,5 @@
+use crate::subagent_tracker::SubagentMap;
+
 /// Session status as determined by the status tracker.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,17 +40,27 @@ impl SessionStatus {
 ///   Any            → Finished / Error (process exits)
 pub struct StatusTracker {
     status: SessionStatus,
+    subagent_map: SubagentMap,
 }
 
 impl StatusTracker {
     pub fn new() -> Self {
         Self {
             status: SessionStatus::Starting,
+            subagent_map: SubagentMap::new(),
         }
     }
 
     pub fn status(&self) -> &SessionStatus {
         &self.status
+    }
+
+    pub fn subagent_map(&self) -> &SubagentMap {
+        &self.subagent_map
+    }
+
+    pub fn subagent_map_mut(&mut self) -> &mut SubagentMap {
+        &mut self.subagent_map
     }
 
     /// Unconditionally set the status if it differs from the current value.
