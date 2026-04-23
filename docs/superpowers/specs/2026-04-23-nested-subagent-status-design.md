@@ -83,7 +83,7 @@ The `is_already_installed` check is extended to verify the `SubagentStop` hook i
 
 The `POST /status/{ao_session_id}` endpoint gains subagent-aware routing. The server uses the `session_id` field from the JSON body to distinguish parent from subagent events:
 
-1. Extract `session_id` from the JSON body (required — return 400 if missing)
+1. Extract `session_id` from the JSON body (optional — if absent, treat as a parent event for backward compatibility)
 2. Look up the `ao_session_id` in the trackers
 3. If no parent `session_id` is recorded yet, record this `session_id` as the parent and process normally
 4. If `session_id` matches the known parent, process as a parent event (existing logic)
