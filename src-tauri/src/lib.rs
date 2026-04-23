@@ -4,9 +4,12 @@ pub mod pty_manager;
 pub mod state;
 pub mod status_parser;
 pub mod status_server;
+pub mod subagent_tracker;
 
 #[cfg(test)]
 mod status_parser_tests;
+#[cfg(test)]
+mod subagent_tracker_tests;
 
 use state::AppState;
 use std::collections::HashMap;
