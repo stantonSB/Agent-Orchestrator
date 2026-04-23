@@ -1,13 +1,14 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { SessionInfo, SessionStatus } from "../types/session";
+import type { SessionInfo, SessionStatus, SubagentStatus } from "../types/session";
 import type { ToastData } from "../components/Toast/Toast";
 
 interface SessionState {
   sessions: Map<string, SessionInfo>;
   activeSessionId: string | null;
   lastUsedDirectory: string | null;
+  subagents: Map<string, SubagentStatus[]>;
 
   // Mutations
   addSession: (session: SessionInfo) => void;
@@ -15,6 +16,7 @@ interface SessionState {
   removeSession: (id: string) => void;
   updateSessionStatus: (id: string, status: SessionStatus) => void;
   setActiveSession: (id: string) => void;
+  updateSubagents: (sessionId: string, subagents: SubagentStatus[]) => void;
 
   // Session management
   dismissSession: (id: string) => void;
@@ -34,11 +36,40 @@ interface SessionState {
 }
 
 const eventCleanups = new Map<string, UnlistenFn[]>();
+const subagentCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleSubagentCleanup(sessionId: string) {
+  const existing = subagentCleanupTimers.get(sessionId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    subagentCleanupTimers.delete(sessionId);
+    const state = useSessionStore.getState();
+    const list = state.subagents.get(sessionId);
+    if (!list) return;
+
+    if (state.activeSessionId !== sessionId) return;
+
+    const remaining = list.filter((a) => a.status !== "finished");
+    state.updateSubagents(sessionId, remaining);
+  }, 30_000);
+
+  subagentCleanupTimers.set(sessionId, timer);
+}
+
+function cancelSubagentCleanup(sessionId: string) {
+  const timer = subagentCleanupTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    subagentCleanupTimers.delete(sessionId);
+  }
+}
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   activeSessionId: null,
   lastUsedDirectory: null,
+  subagents: new Map(),
   toasts: [],
 
   addToast: (message, type) => {
@@ -63,10 +94,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessions: next };
     }),
 
-  removeSession: (id) =>
+  removeSession: (id) => {
+    cancelSubagentCleanup(id);
     set((state) => {
       const next = new Map(state.sessions);
       next.delete(id);
+      const nextSubagents = new Map(state.subagents);
+      nextSubagents.delete(id);
 
       const cleanups = eventCleanups.get(id);
       if (cleanups) {
@@ -76,8 +110,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
       return {
         sessions: next,
+        subagents: nextSubagents,
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
       };
+    });
+  },
+
+  updateSubagents: (sessionId, subagentList) =>
+    set((state) => {
+      const next = new Map(state.subagents);
+      if (subagentList.length === 0) {
+        next.delete(sessionId);
+        cancelSubagentCleanup(sessionId);
+      } else {
+        next.set(sessionId, subagentList);
+        if (state.activeSessionId === sessionId && subagentList.some((a) => a.status === "finished")) {
+          scheduleSubagentCleanup(sessionId);
+        }
+      }
+      return { subagents: next };
     }),
 
   updateSessionStatus: (id, status) =>
@@ -90,12 +141,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessions: next };
     }),
 
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  setActiveSession: (id) => {
+    const prevActive = useSessionStore.getState().activeSessionId;
+    if (prevActive) cancelSubagentCleanup(prevActive);
 
-  dismissSession: (id) =>
+    set({ activeSessionId: id });
+
+    const subagents = useSessionStore.getState().subagents.get(id);
+    if (subagents?.some((a) => a.status === "finished")) {
+      scheduleSubagentCleanup(id);
+    }
+  },
+
+  dismissSession: (id) => {
+    cancelSubagentCleanup(id);
     set((state) => {
       const next = new Map(state.sessions);
       next.delete(id);
+      const nextSubagents = new Map(state.subagents);
+      nextSubagents.delete(id);
       const cleanups = eventCleanups.get(id);
       if (cleanups) {
         cleanups.forEach((unlisten) => unlisten());
@@ -106,8 +170,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const remaining = Array.from(next.keys());
         activeSessionId = remaining.length > 0 ? remaining[0] : null;
       }
-      return { sessions: next, activeSessionId };
-    }),
+      return { sessions: next, subagents: nextSubagents, activeSessionId };
+    });
+  },
 
   createSession: async (name, cwd, skipPermissions = true, pullLatest = false) => {
     if (pullLatest) {
@@ -168,6 +233,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       listen<{ code: number | null }>(`session-exit-${sessionId}`, (event) => {
         const status: SessionStatus = event.payload.code === 0 ? "finished" : "error";
         get().updateSessionStatus(sessionId, status);
+      })
+    );
+
+    cleanups.push(
+      listen<SubagentStatus[]>(`session-subagents-${sessionId}`, (event) => {
+        get().updateSubagents(sessionId, event.payload);
       })
     );
 

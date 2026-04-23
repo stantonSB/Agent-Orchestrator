@@ -85,6 +85,9 @@ fn is_already_installed(script_path: &Path, settings_path: &Path, profile_path: 
     if !settings_has_our_stop_hook(settings_path) {
         return false;
     }
+    if !settings_has_our_subagent_stop_hook(settings_path) {
+        return false;
+    }
 
     // Check .claude.json has idle threshold
     if !profile_has_idle_threshold(profile_path) {
@@ -116,6 +119,18 @@ fn settings_has_our_stop_hook(settings_path: &Path) -> bool {
         Err(_) => return false,
     };
     hook_array_has_our_script(&val, "Stop")
+}
+
+fn settings_has_our_subagent_stop_hook(settings_path: &Path) -> bool {
+    let content = match fs::read_to_string(settings_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let val: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    hook_array_has_our_script(&val, "SubagentStop")
 }
 
 fn hook_array_has_our_script(val: &serde_json::Value, hook_type: &str) -> bool {
@@ -179,8 +194,9 @@ fn merge_hook_settings(settings_path: &Path) -> Result<(), String> {
     // Check what's missing before taking mutable borrows
     let need_notification = !notification_array_has_our_hook(&val);
     let need_stop = !hook_array_has_our_script(&val, "Stop");
+    let need_subagent_stop = !hook_array_has_our_script(&val, "SubagentStop");
 
-    if !need_notification && !need_stop {
+    if !need_notification && !need_stop && !need_subagent_stop {
         return Ok(());
     }
 
@@ -225,7 +241,19 @@ fn merge_hook_settings(settings_path: &Path) -> Result<(), String> {
         stop_hooks
             .as_array_mut()
             .ok_or("Stop is not an array")?
-            .push(our_hook_entry);
+            .push(our_hook_entry.clone());
+    }
+
+    // Add SubagentStop hook if missing — fires when a subagent finishes,
+    // enabling status tracking for nested subagent sessions.
+    if need_subagent_stop {
+        let subagent_stop_hooks = hooks_obj
+            .entry("SubagentStop")
+            .or_insert_with(|| serde_json::Value::Array(vec![]));
+        subagent_stop_hooks
+            .as_array_mut()
+            .ok_or("SubagentStop is not an array")?
+            .push(our_hook_entry.clone());
     }
 
     let serialized = serde_json::to_string_pretty(&val)
@@ -428,6 +456,45 @@ mod tests {
         // New settings.json is valid and has both hooks
         assert!(settings_has_our_hook(&settings_path(&home)));
         assert!(settings_has_our_stop_hook(&settings_path(&home)));
+    }
+
+    #[test]
+    fn test_subagent_stop_hook_installed() {
+        let home = temp_home();
+        ensure_hooks_installed_in(home.path());
+
+        let content = fs::read_to_string(settings_path(&home)).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(hook_array_has_our_script(&val, "SubagentStop"));
+    }
+
+    #[test]
+    fn test_adds_subagent_stop_when_only_notification_and_stop_exist() {
+        let home = temp_home();
+        fs::create_dir_all(claude_dir(&home)).unwrap();
+
+        let existing = serde_json::json!({
+            "hooks": {
+                "Notification": [{
+                    "matcher": "",
+                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
+                }],
+                "Stop": [{
+                    "matcher": "",
+                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
+                }]
+            }
+        });
+        fs::write(settings_path(&home), serde_json::to_string_pretty(&existing).unwrap()).unwrap();
+        write_hook_script(&script_path(&home)).unwrap();
+        set_idle_threshold(&profile_path(&home)).unwrap();
+
+        let result = ensure_hooks_installed_in(home.path());
+        assert_eq!(result, HookInstallResult::Installed);
+        assert!(hook_array_has_our_script(
+            &serde_json::from_str::<serde_json::Value>(&fs::read_to_string(settings_path(&home)).unwrap()).unwrap(),
+            "SubagentStop"
+        ));
     }
 
     #[test]

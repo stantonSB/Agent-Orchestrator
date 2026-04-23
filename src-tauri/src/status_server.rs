@@ -4,7 +4,7 @@
 //! script POSTs JSON to `POST /status/{ao_session_id}` and this module
 //! updates the corresponding [`StatusTracker`] in the shared map.
 
-use crate::pty_manager::StatusCallback;
+use crate::pty_manager::{StatusCallback, SubagentCallback};
 use crate::status_parser::StatusTracker;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,7 @@ impl StatusServer {
     pub fn start(
         trackers: Arc<Mutex<HashMap<String, StatusTracker>>>,
         on_status: Arc<StatusCallback>,
+        on_subagents: Arc<SubagentCallback>,
     ) -> (Self, u16) {
         let server =
             tiny_http::Server::http("127.0.0.1:0").expect("failed to bind status HTTP server");
@@ -35,7 +36,7 @@ impl StatusServer {
         thread::Builder::new()
             .name("status-server".into())
             .spawn(move || {
-                accept_loop(server_clone, trackers, on_status);
+                accept_loop(server_clone, trackers, on_status, on_subagents);
             })
             .expect("failed to spawn status server thread");
 
@@ -62,9 +63,10 @@ fn accept_loop(
     server: Arc<tiny_http::Server>,
     trackers: Arc<Mutex<HashMap<String, StatusTracker>>>,
     on_status: Arc<StatusCallback>,
+    on_subagents: Arc<SubagentCallback>,
 ) {
     for request in server.incoming_requests() {
-        handle_request(request, &trackers, &on_status);
+        handle_request(request, &trackers, &on_status, &on_subagents);
     }
 }
 
@@ -72,6 +74,7 @@ fn handle_request(
     mut request: tiny_http::Request,
     trackers: &Arc<Mutex<HashMap<String, StatusTracker>>>,
     on_status: &Arc<StatusCallback>,
+    on_subagents: &Arc<SubagentCallback>,
 ) {
     // Only allow POST.
     if *request.method() != tiny_http::Method::Post {
@@ -105,24 +108,82 @@ fn handle_request(
         }
     };
 
-    // Extract the event type.  Notification hooks include a `notification_type`
-    // field (e.g. "idle_prompt", "permission_prompt").  The Stop hook does not
-    // include `notification_type`; instead it has `hook_event_name: "Stop"`.
-    // We normalise both into a single string for the status tracker.
+    // Extract session_id from the JSON body (required for subagent routing).
+    let claude_session_id = json.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // Extract the event type.
     let notification_type = if let Some(t) = json.get("notification_type").and_then(|v| v.as_str()) {
         t.to_string()
     } else if json.get("hook_event_name").and_then(|v| v.as_str()) == Some("Stop") {
         "stop".to_string()
+    } else if json.get("hook_event_name").and_then(|v| v.as_str()) == Some("SubagentStop") {
+        "subagent_stop".to_string()
     } else {
         let _ = request.respond(tiny_http::Response::empty(400));
         return;
     };
 
     // Look up tracker and apply the event.
-    let transition = {
+    let (transition, subagent_changed) = {
         let mut map = trackers.lock().unwrap();
         match map.get_mut(&ao_session_id) {
-            Some(tracker) => tracker.notify_hook_event(&notification_type),
+            Some(tracker) => {
+                let mut subagent_changed = false;
+
+                if let Some(ref cc_id) = claude_session_id {
+                    let submap = tracker.subagent_map_mut();
+                    if submap.parent_unknown() {
+                        // First event establishes parent, may replay buffered
+                        subagent_changed = submap.process_event(cc_id, &notification_type);
+                    } else if submap.is_parent(cc_id) {
+                        // Parent event — SubagentStop fires on parent context
+                        // No special handling needed here
+                    } else {
+                        // Subagent event
+                        subagent_changed = submap.process_event(cc_id, &notification_type);
+                    }
+                }
+
+                // Only process parent status transitions for parent events (or when no session_id)
+                let is_parent_event = claude_session_id.as_ref()
+                    .map(|id| tracker.subagent_map().is_parent(id) || tracker.subagent_map().parent_unknown())
+                    .unwrap_or(true);
+
+                let transition = if is_parent_event && notification_type != "subagent_stop" {
+                    let base_transition = tracker.notify_hook_event(&notification_type);
+
+                    // Bubble: if any subagent needs attention and parent is working/idle,
+                    // emit needs_attention for the parent
+                    if subagent_changed && tracker.subagent_map().any_needs_attention() {
+                        match tracker.status() {
+                            crate::status_parser::SessionStatus::Working | crate::status_parser::SessionStatus::Idle => {
+                                Some(crate::status_parser::SessionStatus::NeedsAttention)
+                            }
+                            _ => base_transition,
+                        }
+                    } else {
+                        base_transition
+                    }
+                } else {
+                    // Subagent or SubagentStop event — check if bubbling needed
+                    if subagent_changed && tracker.subagent_map().any_needs_attention() {
+                        match tracker.status() {
+                            crate::status_parser::SessionStatus::Working | crate::status_parser::SessionStatus::Idle => {
+                                Some(crate::status_parser::SessionStatus::NeedsAttention)
+                            }
+                            _ => None,
+                        }
+                    } else if subagent_changed && !tracker.subagent_map().any_needs_attention() {
+                        // Subagent resolved — re-emit parent's true status so frontend
+                        // can restore from the bubbled needs_attention state
+                        Some(tracker.status().clone())
+                    } else {
+                        None
+                    }
+                };
+
+                (transition, subagent_changed)
+            }
             None => {
                 drop(map);
                 let _ = request.respond(tiny_http::Response::empty(404));
@@ -131,16 +192,30 @@ fn handle_request(
         }
     };
 
+    // Emit subagent list update if changed
+    if subagent_changed {
+        let payload = {
+            let map = trackers.lock().unwrap();
+            if let Some(tracker) = map.get(&ao_session_id) {
+                Some(tracker.subagent_map().payload())
+            } else {
+                None
+            }
+        };
+        if let Some(payload) = payload {
+            on_subagents(ao_session_id.clone(), payload);
+        }
+    }
+
+    // Emit parent status change if occurred
     match transition {
         Some(new_status) => {
-            // Use ao_session_id (from URL path) — this is the Agent Orchestrator
-            // session ID that the frontend listens on, NOT the Claude Code
-            // session_id from the JSON body.
             on_status(ao_session_id, new_status.as_str().to_string());
             let _ = request.respond(tiny_http::Response::empty(200));
         }
         None => {
-            let _ = request.respond(tiny_http::Response::empty(204));
+            let code = if subagent_changed { 200 } else { 204 };
+            let _ = request.respond(tiny_http::Response::empty(code));
         }
     }
 }
@@ -172,6 +247,10 @@ mod tests {
 
     fn noop_callback() -> Arc<StatusCallback> {
         Arc::new(Box::new(|_id: String, _status: String| {}))
+    }
+
+    fn noop_subagent_callback() -> Arc<SubagentCallback> {
+        Arc::new(Box::new(|_id: String, _payload: Vec<crate::subagent_tracker::SubagentStatusPayload>| {}))
     }
 
     /// Send a raw HTTP request over a TcpStream and return the status line.
@@ -209,7 +288,7 @@ mod tests {
     #[test]
     fn test_server_starts_with_valid_port() {
         let trackers = make_trackers();
-        let (_server, port) = StatusServer::start(trackers, noop_callback());
+        let (_server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
         assert!(port > 0, "port should be non-zero");
     }
 
@@ -219,7 +298,7 @@ mod tests {
         // Insert a tracker starting in Starting state; idle_prompt -> Idle.
         trackers.lock().unwrap().insert("sess1".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let body = r#"{"session_id":"cc-sess-1","notification_type":"idle_prompt"}"#;
         let line = post(port, "/status/sess1", body);
@@ -236,7 +315,7 @@ mod tests {
         tracker.notify_hook_event("idle_prompt"); // Starting -> Idle
         trackers.lock().unwrap().insert("sess2".into(), tracker);
 
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let body = r#"{"session_id":"cc-sess-2","notification_type":"idle_prompt"}"#;
         let line = post(port, "/status/sess2", body);
@@ -248,7 +327,7 @@ mod tests {
     #[test]
     fn test_post_unknown_session_id_returns_404() {
         let trackers = make_trackers();
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let body = r#"{"session_id":"x","notification_type":"idle_prompt"}"#;
         let line = post(port, "/status/unknown-session", body);
@@ -262,7 +341,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("sess3".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let line = post(port, "/status/sess3", "not-json{{");
         assert_eq!(status_code(&line), 400, "expected 400, got: {line}");
@@ -275,7 +354,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("sess4".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let body = r#"{"session_id":"x","message":"no type here"}"#;
         let line = post(port, "/status/sess4", body);
@@ -287,7 +366,7 @@ mod tests {
     #[test]
     fn test_get_request_returns_405() {
         let trackers = make_trackers();
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let line = get(port, "/status/any-session");
         assert_eq!(status_code(&line), 405, "expected 405, got: {line}");
@@ -298,7 +377,7 @@ mod tests {
     #[test]
     fn test_stop_works_cleanly() {
         let trackers = make_trackers();
-        let (server, _port) = StatusServer::start(trackers, noop_callback());
+        let (server, _port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
         // Just verifying stop() doesn't panic.
         server.stop();
     }
@@ -306,13 +385,13 @@ mod tests {
     #[test]
     fn test_stop_hook_event_returns_200_on_transition() {
         let trackers = make_trackers();
-        // Start in Working state so stop → Finished is a valid transition.
+        // Start in Working state so stop -> Finished is a valid transition.
         let mut tracker = StatusTracker::new();
-        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
-        tracker.notify_user_input(b"task\r"); // Idle → Working
+        tracker.notify_hook_event("idle_prompt"); // Starting -> Idle
+        tracker.notify_user_input(b"task\r"); // Idle -> Working
         trackers.lock().unwrap().insert("sess-stop".into(), tracker);
 
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         // Stop hook sends hook_event_name instead of notification_type
         let body = r#"{"session_id":"cc-1","hook_event_name":"Stop","cwd":"/tmp"}"#;
@@ -327,7 +406,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("sess-stop2".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
 
         let body = r#"{"session_id":"cc-2","hook_event_name":"Stop"}"#;
         let line = post(port, "/status/sess-stop2", body);
@@ -352,12 +431,36 @@ mod tests {
                 }
             }));
 
-        let (server, port) = StatusServer::start(trackers, cb);
+        let (server, port) = StatusServer::start(trackers, cb, noop_subagent_callback());
 
         let body = r#"{"session_id":"cc-5","notification_type":"idle_prompt"}"#;
         post(port, "/status/sess5", body);
 
         assert!(called.load(Ordering::SeqCst), "on_status callback should have been called");
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_subagent_detected_from_different_session_id() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+
+        // First event establishes parent
+        let body = r#"{"session_id":"cc-parent","notification_type":"idle_prompt"}"#;
+        post(port, "/status/ao-sess", body);
+
+        // Second event from different session_id is a subagent
+        let body = r#"{"session_id":"cc-child","notification_type":"idle_prompt"}"#;
+        let line = post(port, "/status/ao-sess", body);
+        assert_eq!(status_code(&line), 200);
+
+        // Verify subagent was registered
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        assert_eq!(tracker.subagent_map().subagents().len(), 1);
 
         server.stop();
     }

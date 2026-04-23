@@ -120,4 +120,30 @@ describe("SessionPanel", () => {
     const headers = screen.getAllByText("myapp");
     expect(headers.length).toBe(2);
   });
+
+  it("renders subagent entries beneath parent session", async () => {
+    const { useSessionStore } = await import("../../stores/sessionStore");
+    useSessionStore.setState({
+      subagents: new Map([
+        ["1", [
+          { id: "cc-child-1", index: 1, status: "working", name: "Exploring" },
+          { id: "cc-child-2", index: 2, status: "idle", name: null },
+        ]],
+      ]),
+    });
+
+    const sessions: SessionInfo[] = [
+      { id: "1", name: "Feature work", status: "working", createdAt: 1000, cwd: "/projects/app" },
+    ];
+    render(
+      <SessionPanel
+        sessions={sessions}
+        activeSessionId="1"
+        onSessionClick={vi.fn()}
+        onNewSession={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Exploring")).toBeTruthy();
+    expect(screen.getByText("Agent 2")).toBeTruthy();
+  });
 });

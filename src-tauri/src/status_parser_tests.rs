@@ -583,6 +583,23 @@ mod tests {
         assert_eq!(*tracker.status(), SessionStatus::Finished);
     }
 
+    // -----------------------------------------------------------------------
+    // SubagentMap integration
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_status_tracker_has_subagent_map() {
+        let tracker = StatusTracker::new();
+        assert!(tracker.subagent_map().parent_session_id().is_none());
+    }
+
+    #[test]
+    fn test_subagent_map_mut_allows_modification() {
+        let mut tracker = StatusTracker::new();
+        tracker.subagent_map_mut().process_event("parent", "idle_prompt");
+        assert_eq!(tracker.subagent_map().parent_session_id(), Some("parent"));
+    }
+
     // set_status tests
 
     #[test]

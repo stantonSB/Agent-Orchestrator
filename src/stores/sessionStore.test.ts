@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useSessionStore } from "./sessionStore";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -16,6 +16,7 @@ describe("sessionStore", () => {
       sessions: new Map(),
       activeSessionId: null,
       lastUsedDirectory: null,
+      subagents: new Map(),
     });
   });
 
@@ -223,6 +224,189 @@ describe("sessionStore", () => {
         "session-exit-test-session",
         expect.any(Function)
       );
+    });
+  });
+
+  describe("subagents", () => {
+    it("initializes with empty subagents map", () => {
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.size).toBe(0);
+    });
+
+    it("updates subagents for a session", () => {
+      const store = useSessionStore.getState();
+      store.updateSubagents("session-1", [
+        { id: "cc-child-1", index: 1, status: "working", name: null },
+        { id: "cc-child-2", index: 2, status: "idle", name: "Exploring" },
+      ]);
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.get("session-1")?.length).toBe(2);
+      expect(subagents.get("session-1")?.[0].status).toBe("working");
+      expect(subagents.get("session-1")?.[1].name).toBe("Exploring");
+    });
+
+    it("clears subagents when session is removed", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.updateSubagents("session-1", [
+        { id: "cc-child-1", index: 1, status: "working", name: null },
+      ]);
+      store.removeSession("session-1");
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.has("session-1")).toBe(false);
+    });
+
+    it("clears subagents when session is dismissed", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "finished",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.updateSubagents("session-1", [
+        { id: "cc-child-1", index: 1, status: "finished", name: null },
+      ]);
+      store.dismissSession("session-1");
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.has("session-1")).toBe(false);
+    });
+
+    it("registers listener for session-subagents event", async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const store = useSessionStore.getState();
+      store.setupEventListeners("test-session");
+
+      expect(listen).toHaveBeenCalledWith(
+        "session-subagents-test-session",
+        expect.any(Function)
+      );
+    });
+  });
+
+  describe("subagent cleanup", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("removes finished subagents 30s after parent becomes active", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.setActiveSession("session-1");
+      store.updateSubagents("session-1", [
+        { id: "child-1", index: 1, status: "finished", name: null },
+        { id: "child-2", index: 2, status: "working", name: null },
+      ]);
+
+      vi.advanceTimersByTime(30_000);
+
+      const { subagents } = useSessionStore.getState();
+      const list = subagents.get("session-1");
+      expect(list?.length).toBe(1);
+      expect(list?.[0].id).toBe("child-2");
+    });
+
+    it("does not remove finished subagents if parent is not active", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.addSession({
+        id: "session-2",
+        name: "Other",
+        status: "idle",
+        createdAt: Date.now(),
+        cwd: "/other",
+      });
+      store.setActiveSession("session-2");
+      store.updateSubagents("session-1", [
+        { id: "child-1", index: 1, status: "finished", name: null },
+      ]);
+
+      vi.advanceTimersByTime(60_000);
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.get("session-1")?.length).toBe(1);
+    });
+
+    it("cancels timer when switching away from parent session", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.addSession({
+        id: "session-2",
+        name: "Other",
+        status: "idle",
+        createdAt: Date.now(),
+        cwd: "/other",
+      });
+      store.setActiveSession("session-1");
+      store.updateSubagents("session-1", [
+        { id: "child-1", index: 1, status: "finished", name: null },
+      ]);
+
+      store.setActiveSession("session-2");
+      vi.advanceTimersByTime(60_000);
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.get("session-1")?.length).toBe(1);
+    });
+
+    it("starts timer when switching to parent session with finished subagents", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.addSession({
+        id: "session-2",
+        name: "Other",
+        status: "idle",
+        createdAt: Date.now(),
+        cwd: "/other",
+      });
+      store.setActiveSession("session-2");
+      store.updateSubagents("session-1", [
+        { id: "child-1", index: 1, status: "finished", name: null },
+      ]);
+
+      store.setActiveSession("session-1");
+      vi.advanceTimersByTime(30_000);
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.has("session-1")).toBe(false);
     });
   });
 });

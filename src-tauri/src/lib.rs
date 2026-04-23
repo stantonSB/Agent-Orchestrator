@@ -4,9 +4,12 @@ pub mod pty_manager;
 pub mod state;
 pub mod status_parser;
 pub mod status_server;
+pub mod subagent_tracker;
 
 #[cfg(test)]
 mod status_parser_tests;
+#[cfg(test)]
+mod subagent_tracker_tests;
 
 use state::AppState;
 use std::collections::HashMap;
@@ -21,6 +24,7 @@ pub fn run() {
             let handle_for_exit = app.handle().clone();
             let handle_for_status = app.handle().clone();
             let handle_for_hook = app.handle().clone();
+            let handle_for_subagents = app.handle().clone();
 
             // Install Claude Code notification hooks. Emit a warning event if
             // installation fails, but do not block startup.
@@ -64,6 +68,12 @@ pub fn run() {
                     );
                 });
 
+            let on_subagents: pty_manager::SubagentCallback =
+                Box::new(move |id, payload| {
+                    let event_name = format!("session-subagents-{}", id);
+                    let _ = handle_for_subagents.emit(&event_name, payload);
+                });
+
             // Create shared status trackers — used by both the PTY manager
             // (to insert/remove trackers per session) and the HTTP status
             // server (to receive hook events and update tracker state).
@@ -76,8 +86,9 @@ pub fn run() {
 
             // Start the HTTP status server. It receives POST requests from
             // Claude Code hook scripts and fires the on_status callback.
+            let on_subagents_arc: Arc<pty_manager::SubagentCallback> = Arc::new(on_subagents);
             let (status_server, status_port) =
-                status_server::StatusServer::start(status_trackers.clone(), on_status_for_server);
+                status_server::StatusServer::start(status_trackers.clone(), on_status_for_server, on_subagents_arc);
 
             // Start the PTY manager, giving it the shared trackers and the
             // port so newly spawned sessions get the correct env vars.
