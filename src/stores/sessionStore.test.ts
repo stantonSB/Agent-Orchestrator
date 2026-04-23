@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 describe("sessionStore", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useSessionStore.setState({
       sessions: new Map(),
       activeSessionId: null,
@@ -128,6 +129,48 @@ describe("sessionStore", () => {
       expect(sessions.get("new-id-456")?.status).toBe("starting");
       expect(sessions.get("new-id-456")?.cwd).toBe("/path/to/project");
       expect(activeSessionId).toBe("new-id-456");
+    });
+
+    it("calls git_pull_main before create_session when pullLatest is true", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const callOrder: string[] = [];
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+        callOrder.push(cmd);
+        if (cmd === "create_session") return "pull-id-789";
+        return undefined;
+      });
+
+      const store = useSessionStore.getState();
+      await store.createSession("Pull Session", "/path/to/project", true, true);
+
+      expect(callOrder).toEqual(["git_pull_main", "create_session"]);
+      expect(invoke).toHaveBeenCalledWith("git_pull_main", {
+        cwd: "/path/to/project",
+      });
+    });
+
+    it("does NOT call git_pull_main when pullLatest is false", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("no-pull-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("No Pull", "/path/to/project", true, false);
+
+      expect(invoke).not.toHaveBeenCalledWith("git_pull_main", expect.anything());
+      expect(invoke).toHaveBeenCalledWith("create_session", expect.anything());
+    });
+
+    it("does NOT create session when git_pull_main fails", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockRejectedValueOnce(new Error("git pull failed"));
+
+      const store = useSessionStore.getState();
+      await expect(
+        store.createSession("Fail Pull", "/path/to/project", true, true)
+      ).rejects.toThrow("git pull failed");
+
+      expect(invoke).not.toHaveBeenCalledWith("create_session", expect.anything());
+      expect(useSessionStore.getState().sessions.size).toBe(0);
     });
   });
 

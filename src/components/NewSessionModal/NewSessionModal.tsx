@@ -5,7 +5,7 @@ import styles from "./NewSessionModal.module.css";
 interface NewSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, cwd: string, skipPermissions: boolean) => void;
+  onCreate: (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean) => void;
   lastUsedDirectory: string | null;
 }
 
@@ -18,6 +18,7 @@ export function NewSessionModal({
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState<string | null>(null);
   const [skipPermissions, setSkipPermissions] = useState(true);
+  const [pullLatest, setPullLatest] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export function NewSessionModal({
       setName("");
       setDirectory(lastUsedDirectory);
       setSkipPermissions(true);
+      setPullLatest(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, lastUsedDirectory]);
@@ -46,7 +48,7 @@ export function NewSessionModal({
   const handleCreate = () => {
     const trimmedName = name.trim();
     if (!trimmedName || !directory) return;
-    onCreate(trimmedName, directory, skipPermissions);
+    onCreate(trimmedName, directory, skipPermissions, pullLatest);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -103,6 +105,16 @@ export function NewSessionModal({
             </button>
           </div>
         </div>
+
+        <label className={styles.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={pullLatest}
+            onChange={(e) => setPullLatest(e.target.checked)}
+            className={styles.checkbox}
+          />
+          <span className={styles.checkboxLabel}>Pull latest from main</span>
+        </label>
 
         <label className={styles.checkboxRow}>
           <input

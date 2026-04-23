@@ -85,9 +85,9 @@ export function App() {
     onSwitchToSession: handleSwitchToSession,
   });
 
-  const handleCreateSession = async (name: string, cwd: string, skipPermissions: boolean) => {
+  const handleCreateSession = async (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean) => {
     setIsModalOpen(false);
-    await createSession(name, cwd, skipPermissions);
+    await createSession(name, cwd, skipPermissions, pullLatest);
   };
 
   const handleResizeMouseDown = useCallback(
