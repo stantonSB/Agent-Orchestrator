@@ -2,7 +2,7 @@
 
 A macOS desktop app for running multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) terminal sessions in parallel. Monitor session status at a glance, switch between agents without losing scrollback, and manage everything from a single window.
 
-Built with Tauri 2, React 19, and TypeScript. Inspired by [Scape](https://www.scape.work).
+Built with Tauri 2, React 19, and TypeScript.
 
 ## Features
 

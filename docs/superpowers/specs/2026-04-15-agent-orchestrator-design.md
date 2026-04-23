@@ -4,7 +4,7 @@
 
 A macOS desktop application for managing multiple parallel Claude Code sessions. Built with Tauri (Rust backend) and React (frontend). Each session runs Claude Code in its own PTY with `--worktree --dangerously-skip-permissions`, embedded via xterm.js for a real terminal experience. A sidebar panel provides at-a-glance status for all sessions.
 
-Inspired by [Scape](https://www.scape.work), scoped to agent management and orchestration for Phase 1.
+Scoped to agent management and orchestration for Phase 1.
 
 ## Decisions
 
@@ -13,7 +13,7 @@ Inspired by [Scape](https://www.scape.work), scoped to agent management and orch
 | Framework | Tauri + React | Lightweight, Rust backend ideal for process management |
 | Terminal | xterm.js | Real terminal emulator, no need to reparse Claude output |
 | Styling | CSS Modules | Scoped styles, no runtime overhead |
-| Layout | Single-window, two-pane | Matches Scape reference, simplest to build |
+| Layout | Single-window, two-pane | Simplest to build |
 | Session persistence | Ephemeral (Phase 1) | Persistent sessions deferred to Phase 2 |
 | Platform | macOS only | Cross-platform deferred. `portable-pty` is used as a forward-looking choice — it works on macOS now and eases future cross-platform support |
 | Progress indicator | Activity heartbeat + duration | Honest signal — Claude has no completion percentage |
