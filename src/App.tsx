@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { useSessionStore } from "./stores/sessionStore";
 import { TitleBar } from "./components/TitleBar/TitleBar";
@@ -6,7 +7,9 @@ import { SessionPanel } from "./components/SessionPanel/SessionPanel";
 import { NewSessionModal } from "./components/NewSessionModal/NewSessionModal";
 import { TerminalArea } from "./components/TerminalArea/TerminalArea";
 import { ToastContainer } from "./components/ToastContainer/ToastContainer";
+import { CloseConfirmDialog } from "./components/CloseConfirmDialog/CloseConfirmDialog";
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
+import { useGlobalKeybindings } from "./hooks/useGlobalKeybindings";
 import styles from "./App.module.css";
 
 export function App() {
@@ -21,6 +24,7 @@ export function App() {
     return () => { unlisten.then((fn) => fn()); };
   }, [addToast]);
   const [panelWidth, setPanelWidth] = useState(300);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const isDragging = useRef(false);
 
   const sessions = useSessionStore((s) => s.sessions);
@@ -28,16 +32,43 @@ export function App() {
   const lastUsedDirectory = useSessionStore((s) => s.lastUsedDirectory);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const createSession = useSessionStore((s) => s.createSession);
+  const closeSession = useSessionStore((s) => s.closeSession);
+  const dismissSession = useSessionStore((s) => s.dismissSession);
+
+  const activeSession = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const activeIsRunning = activeSession
+    ? activeSession.status !== "finished" && activeSession.status !== "error"
+    : false;
+
+  const handleNewSession = useCallback(() => {
+    setIsModalOpen(true);
+  }, []);
+
+  const handleCloseActiveSession = useCallback(() => {
+    if (!activeSession) return;
+    setShowCloseConfirm(true);
+  }, [activeSession]);
+
+  const handleConfirmClose = useCallback(() => {
+    if (!activeSession) return;
+    if (activeIsRunning) {
+      closeSession(activeSession.id);
+    } else {
+      dismissSession(activeSession.id);
+    }
+    setShowCloseConfirm(false);
+  }, [activeSession, activeIsRunning, closeSession, dismissSession]);
+
+  useGlobalKeybindings({
+    onNewSession: handleNewSession,
+    onCloseActiveSession: handleCloseActiveSession,
+  });
 
   const sessionList = useMemo(() => {
     return Array.from(sessions.values()).sort(
       (a, b) => b.createdAt - a.createdAt
     );
   }, [sessions]);
-
-  const handleNewSession = () => {
-    setIsModalOpen(true);
-  };
 
   const handleCreateSession = async (name: string, cwd: string) => {
     setIsModalOpen(false);
@@ -98,6 +129,16 @@ export function App() {
         lastUsedDirectory={lastUsedDirectory}
       />
       <ToastContainer />
+      {showCloseConfirm && activeSession &&
+        createPortal(
+          <CloseConfirmDialog
+            sessionName={activeSession.name}
+            isRunning={activeIsRunning}
+            onConfirm={handleConfirmClose}
+            onCancel={() => setShowCloseConfirm(false)}
+          />,
+          document.body
+        )}
     </div>
   );
 }
