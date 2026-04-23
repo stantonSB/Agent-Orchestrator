@@ -1,5 +1,6 @@
-import type { SessionInfo } from "../../types/session";
+import type { SessionInfo, SubagentStatus } from "../../types/session";
 import { SessionCard } from "../SessionCard/SessionCard";
+import { SubagentList } from "../SubagentList/SubagentList";
 import styles from "./ProjectGroup.module.css";
 
 interface ProjectGroupProps {
@@ -12,6 +13,7 @@ interface ProjectGroupProps {
   onClose: (id: string) => Promise<void>;
   onDismiss: (id: string) => void;
   onRename?: (id: string, name: string) => void;
+  subagentsBySession: Map<string, SubagentStatus[]>;
 }
 
 export function ProjectGroup({
@@ -24,6 +26,7 @@ export function ProjectGroup({
   onClose,
   onDismiss,
   onRename,
+  subagentsBySession,
 }: ProjectGroupProps) {
   return (
     <div className={styles.group}>
@@ -49,15 +52,17 @@ export function ProjectGroup({
       {!isCollapsed && (
         <div className={styles.sessions}>
           {sessions.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              isActive={session.id === activeSessionId}
-              onClick={onSessionClick}
-              onClose={onClose}
-              onDismiss={onDismiss}
-              onRename={onRename}
-            />
+            <div key={session.id}>
+              <SessionCard
+                session={session}
+                isActive={session.id === activeSessionId}
+                onClick={onSessionClick}
+                onClose={onClose}
+                onDismiss={onDismiss}
+                onRename={onRename}
+              />
+              <SubagentList subagents={subagentsBySession.get(session.id) ?? []} />
+            </div>
           ))}
         </div>
       )}
