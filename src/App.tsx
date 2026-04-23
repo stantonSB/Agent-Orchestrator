@@ -70,9 +70,9 @@ export function App() {
     );
   }, [sessions]);
 
-  const handleCreateSession = async (name: string, cwd: string) => {
+  const handleCreateSession = async (name: string, cwd: string, skipPermissions: boolean) => {
     setIsModalOpen(false);
-    await createSession(name, cwd);
+    await createSession(name, cwd, skipPermissions);
   };
 
   const handleResizeMouseDown = useCallback(

@@ -5,7 +5,7 @@ import styles from "./NewSessionModal.module.css";
 interface NewSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, cwd: string) => void;
+  onCreate: (name: string, cwd: string, skipPermissions: boolean) => void;
   lastUsedDirectory: string | null;
 }
 
@@ -17,12 +17,14 @@ export function NewSessionModal({
 }: NewSessionModalProps) {
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState<string | null>(null);
+  const [skipPermissions, setSkipPermissions] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setName("");
       setDirectory(lastUsedDirectory);
+      setSkipPermissions(true);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, lastUsedDirectory]);
@@ -44,7 +46,7 @@ export function NewSessionModal({
   const handleCreate = () => {
     const trimmedName = name.trim();
     if (!trimmedName || !directory) return;
-    onCreate(trimmedName, directory);
+    onCreate(trimmedName, directory, skipPermissions);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -101,6 +103,16 @@ export function NewSessionModal({
             </button>
           </div>
         </div>
+
+        <label className={styles.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={skipPermissions}
+            onChange={(e) => setSkipPermissions(e.target.checked)}
+            className={styles.checkbox}
+          />
+          <span className={styles.checkboxLabel}>Skip permissions</span>
+        </label>
 
         <div className={styles.actions}>
           <button

@@ -104,6 +104,26 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.checkboxLabel {
+  font-size: 13px;
+  color: #9ca3af;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
