@@ -105,13 +105,17 @@ fn handle_request(
         }
     };
 
-    // Extract notification_type.
-    let notification_type = match json.get("notification_type").and_then(|v| v.as_str()) {
-        Some(t) => t.to_string(),
-        None => {
-            let _ = request.respond(tiny_http::Response::empty(400));
-            return;
-        }
+    // Extract the event type.  Notification hooks include a `notification_type`
+    // field (e.g. "idle_prompt", "permission_prompt").  The Stop hook does not
+    // include `notification_type`; instead it has `hook_event_name: "Stop"`.
+    // We normalise both into a single string for the status tracker.
+    let notification_type = if let Some(t) = json.get("notification_type").and_then(|v| v.as_str()) {
+        t.to_string()
+    } else if json.get("hook_event_name").and_then(|v| v.as_str()) == Some("Stop") {
+        "stop".to_string()
+    } else {
+        let _ = request.respond(tiny_http::Response::empty(400));
+        return;
     };
 
     // Look up tracker and apply the event.
@@ -296,6 +300,39 @@ mod tests {
         let trackers = make_trackers();
         let (server, _port) = StatusServer::start(trackers, noop_callback());
         // Just verifying stop() doesn't panic.
+        server.stop();
+    }
+
+    #[test]
+    fn test_stop_hook_event_returns_200_on_transition() {
+        let trackers = make_trackers();
+        // Start in Working state so stop → Finished is a valid transition.
+        let mut tracker = StatusTracker::new();
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+        trackers.lock().unwrap().insert("sess-stop".into(), tracker);
+
+        let (server, port) = StatusServer::start(trackers, noop_callback());
+
+        // Stop hook sends hook_event_name instead of notification_type
+        let body = r#"{"session_id":"cc-1","hook_event_name":"Stop","cwd":"/tmp"}"#;
+        let line = post(port, "/status/sess-stop", body);
+        assert_eq!(status_code(&line), 200, "expected 200, got: {line}");
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_stop_hook_from_starting_returns_200() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("sess-stop2".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers, noop_callback());
+
+        let body = r#"{"session_id":"cc-2","hook_event_name":"Stop"}"#;
+        let line = post(port, "/status/sess-stop2", body);
+        assert_eq!(status_code(&line), 200, "expected 200, got: {line}");
+
         server.stop();
     }
 

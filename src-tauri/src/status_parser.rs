@@ -27,9 +27,9 @@ impl SessionStatus {
 /// Tracks the lifecycle state of a single session via hook events and user input.
 ///
 /// State machine:
-///   Starting       → Idle            (idle_prompt hook)
+///   Starting       → Idle            (idle_prompt hook or stop hook)
 ///   Starting       → NeedsAttention  (permission_prompt / elicitation_dialog hook)
-///   Working        → Finished        (idle_prompt hook)
+///   Working        → Finished        (idle_prompt hook or stop hook)
 ///   Working        → NeedsAttention  (permission_prompt / elicitation_dialog hook)
 ///   NeedsAttention → Finished        (idle_prompt hook)
 ///   Starting       → Idle            (5-second startup timeout)
@@ -65,7 +65,9 @@ impl StatusTracker {
     /// Returns `Some(new_status)` if the status changed, `None` otherwise.
     pub fn notify_hook_event(&mut self, notification_type: &str) -> Option<SessionStatus> {
         let new_status = match notification_type {
-            "idle_prompt" => match self.status {
+            // idle_prompt fires after Claude Code's hardcoded 60-second idle timeout.
+            // stop fires immediately when Claude's agent loop completes.
+            "idle_prompt" | "stop" => match self.status {
                 SessionStatus::Starting => Some(SessionStatus::Idle),
                 SessionStatus::Working | SessionStatus::NeedsAttention => {
                     Some(SessionStatus::Finished)
