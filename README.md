@@ -2,7 +2,21 @@
 
 A desktop application for managing multiple AI agent terminal sessions with real-time status monitoring. Built with Tauri 2, React 19, and TypeScript.
 
-## Prerequisites
+## Installation (macOS)
+
+Download the latest `.dmg` from the [Releases](https://github.com/stantonSB/Agent-Orchestrator/releases) page.
+
+Since the app is not yet code-signed with an Apple Developer certificate, macOS Gatekeeper will block it on first launch. After installing, run this command once to allow it:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Agent\ Orchestrator.app
+```
+
+Then open the app normally. This only needs to be done once after downloading.
+
+> **Why?** When macOS downloads a file via a browser, it attaches a quarantine attribute. Unsigned apps with this attribute are blocked by Gatekeeper. The command above removes the quarantine flag.
+
+## Prerequisites (Development)
 
 - [Node.js](https://nodejs.org/) (v18+)
 - [Rust](https://www.rust-lang.org/tools/install) (latest stable)
