@@ -16,6 +16,7 @@ describe("sessionStore", () => {
       sessions: new Map(),
       activeSessionId: null,
       lastUsedDirectory: null,
+      subagents: new Map(),
     });
   });
 
@@ -221,6 +222,73 @@ describe("sessionStore", () => {
       );
       expect(listen).toHaveBeenCalledWith(
         "session-exit-test-session",
+        expect.any(Function)
+      );
+    });
+  });
+
+  describe("subagents", () => {
+    it("initializes with empty subagents map", () => {
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.size).toBe(0);
+    });
+
+    it("updates subagents for a session", () => {
+      const store = useSessionStore.getState();
+      store.updateSubagents("session-1", [
+        { id: "cc-child-1", index: 1, status: "working", name: null },
+        { id: "cc-child-2", index: 2, status: "idle", name: "Exploring" },
+      ]);
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.get("session-1")?.length).toBe(2);
+      expect(subagents.get("session-1")?.[0].status).toBe("working");
+      expect(subagents.get("session-1")?.[1].name).toBe("Exploring");
+    });
+
+    it("clears subagents when session is removed", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.updateSubagents("session-1", [
+        { id: "cc-child-1", index: 1, status: "working", name: null },
+      ]);
+      store.removeSession("session-1");
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.has("session-1")).toBe(false);
+    });
+
+    it("clears subagents when session is dismissed", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "Test",
+        status: "finished",
+        createdAt: Date.now(),
+        cwd: "/test",
+      });
+      store.updateSubagents("session-1", [
+        { id: "cc-child-1", index: 1, status: "finished", name: null },
+      ]);
+      store.dismissSession("session-1");
+
+      const { subagents } = useSessionStore.getState();
+      expect(subagents.has("session-1")).toBe(false);
+    });
+
+    it("registers listener for session-subagents event", async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const store = useSessionStore.getState();
+      store.setupEventListeners("test-session");
+
+      expect(listen).toHaveBeenCalledWith(
+        "session-subagents-test-session",
         expect.any(Function)
       );
     });
