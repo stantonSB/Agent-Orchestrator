@@ -418,4 +418,33 @@ mod tests {
         tracker.notify_hook_event("idle_prompt");
         assert_eq!(*tracker.status(), SessionStatus::Finished);
     }
+
+    // set_status tests
+
+    #[test]
+    fn test_set_status_from_starting_to_idle() {
+        let mut tracker = StatusTracker::new();
+        let change = tracker.set_status(SessionStatus::Idle);
+        assert_eq!(change, Some(SessionStatus::Idle));
+        assert_eq!(*tracker.status(), SessionStatus::Idle);
+    }
+
+    #[test]
+    fn test_set_status_noop_when_already_in_state() {
+        let mut tracker = StatusTracker::new();
+        let change = tracker.set_status(SessionStatus::Starting);
+        assert_eq!(change, None);
+    }
+
+    #[test]
+    fn test_set_status_skipped_when_already_transitioned() {
+        let mut tracker = StatusTracker::new();
+        // Simulate hook event moving past Starting before timeout fires
+        tracker.notify_hook_event("idle_prompt"); // Starting → Idle
+        tracker.notify_user_input(b"task\r"); // Idle → Working
+
+        // Timeout fires but tracker is already past Starting
+        assert_eq!(*tracker.status(), SessionStatus::Working);
+        // set_status to Idle would still change it — the caller checks for Starting first
+    }
 }

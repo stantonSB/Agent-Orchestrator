@@ -8,7 +8,7 @@
 //! the manager thread. External code sends requests via an mpsc channel
 //! and receives responses via oneshot channels.
 
-use crate::status_parser::StatusTracker;
+use crate::status_parser::{SessionStatus, StatusTracker};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -289,6 +289,10 @@ fn manager_loop(
                     cmd.env("TERM", "xterm-256color");
                     cmd.env("COLORTERM", "truecolor");
 
+                    // Remove CLAUDECODE so spawned sessions don't detect
+                    // nesting when AO itself runs inside Claude Code.
+                    cmd.env_remove("CLAUDECODE");
+
                     // Pass session identity and status server port so that
                     // Claude Code hook scripts can report status back to us.
                     cmd.env("AO_SESSION_ID", &id);
@@ -378,6 +382,41 @@ fn manager_loop(
                             }
                         })
                         .expect("failed to spawn PTY reader thread");
+
+                    // Spawn a timer that transitions Starting → Idle after
+                    // 5 seconds if no hook event has arrived.  Claude Code
+                    // does not fire `idle_prompt` on initial startup, so
+                    // without this the status would stay "Starting" until
+                    // the user presses Enter.
+                    {
+                        let timer_id = id.clone();
+                        let timer_trackers = status_trackers.clone();
+                        let timer_status_cb = on_status.clone();
+                        thread::Builder::new()
+                            .name(format!("startup-timer-{}", &id[..8]))
+                            .spawn(move || {
+                                thread::sleep(std::time::Duration::from_secs(5));
+                                let transition = {
+                                    let mut trackers = timer_trackers.lock().unwrap();
+                                    if let Some(tracker) = trackers.get_mut(&timer_id) {
+                                        if *tracker.status() == SessionStatus::Starting {
+                                            tracker.set_status(SessionStatus::Idle)
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                };
+                                if let Some(new_status) = transition {
+                                    timer_status_cb(
+                                        timer_id,
+                                        new_status.as_str().to_string(),
+                                    );
+                                }
+                            })
+                            .expect("failed to spawn startup timer thread");
+                    }
 
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
