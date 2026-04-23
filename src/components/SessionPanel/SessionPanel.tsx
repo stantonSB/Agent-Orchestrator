@@ -51,9 +51,9 @@ export function groupSessionsByProject(sessions: SessionInfo[]): ProjectGroupDat
     (a, b) => b.newestCreatedAt - a.newestCreatedAt
   );
 
-  // Sort sessions within each group by createdAt descending
+  // Sort sessions within each group by createdAt ascending (oldest first)
   for (const group of sorted) {
-    group.sessions.sort((a, b) => b.createdAt - a.createdAt);
+    group.sessions.sort((a, b) => a.createdAt - b.createdAt);
   }
 
   return sorted;
