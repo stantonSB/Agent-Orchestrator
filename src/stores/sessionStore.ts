@@ -36,6 +36,34 @@ interface SessionState {
 }
 
 const eventCleanups = new Map<string, UnlistenFn[]>();
+const subagentCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleSubagentCleanup(sessionId: string) {
+  const existing = subagentCleanupTimers.get(sessionId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    subagentCleanupTimers.delete(sessionId);
+    const state = useSessionStore.getState();
+    const list = state.subagents.get(sessionId);
+    if (!list) return;
+
+    if (state.activeSessionId !== sessionId) return;
+
+    const remaining = list.filter((a) => a.status !== "finished");
+    state.updateSubagents(sessionId, remaining);
+  }, 30_000);
+
+  subagentCleanupTimers.set(sessionId, timer);
+}
+
+function cancelSubagentCleanup(sessionId: string) {
+  const timer = subagentCleanupTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    subagentCleanupTimers.delete(sessionId);
+  }
+}
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
@@ -66,7 +94,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessions: next };
     }),
 
-  removeSession: (id) =>
+  removeSession: (id) => {
+    cancelSubagentCleanup(id);
     set((state) => {
       const next = new Map(state.sessions);
       next.delete(id);
@@ -84,15 +113,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         subagents: nextSubagents,
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
       };
-    }),
+    });
+  },
 
   updateSubagents: (sessionId, subagentList) =>
     set((state) => {
       const next = new Map(state.subagents);
       if (subagentList.length === 0) {
         next.delete(sessionId);
+        cancelSubagentCleanup(sessionId);
       } else {
         next.set(sessionId, subagentList);
+        if (state.activeSessionId === sessionId && subagentList.some((a) => a.status === "finished")) {
+          scheduleSubagentCleanup(sessionId);
+        }
       }
       return { subagents: next };
     }),
@@ -107,9 +141,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessions: next };
     }),
 
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  setActiveSession: (id) => {
+    const prevActive = useSessionStore.getState().activeSessionId;
+    if (prevActive) cancelSubagentCleanup(prevActive);
 
-  dismissSession: (id) =>
+    set({ activeSessionId: id });
+
+    const subagents = useSessionStore.getState().subagents.get(id);
+    if (subagents?.some((a) => a.status === "finished")) {
+      scheduleSubagentCleanup(id);
+    }
+  },
+
+  dismissSession: (id) => {
+    cancelSubagentCleanup(id);
     set((state) => {
       const next = new Map(state.sessions);
       next.delete(id);
@@ -126,7 +171,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         activeSessionId = remaining.length > 0 ? remaining[0] : null;
       }
       return { sessions: next, subagents: nextSubagents, activeSessionId };
-    }),
+    });
+  },
 
   createSession: async (name, cwd, skipPermissions = true, pullLatest = false) => {
     if (pullLatest) {
