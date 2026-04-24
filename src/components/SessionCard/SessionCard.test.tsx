@@ -151,6 +151,37 @@ describe("SessionCard rename", () => {
   });
 });
 
+describe("SessionCard worktree icon", () => {
+  it("shows tree icon for Claude sessions with isGitRepo true", () => {
+    const session = makeSession({ isGitRepo: true });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    const icon = screen.getByTitle("Running in a git worktree");
+    expect(icon).toBeTruthy();
+    expect(icon.textContent).toContain("🌳");
+  });
+
+  it("shows folder icon for Claude sessions with isGitRepo false", () => {
+    const session = makeSession({ isGitRepo: false });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    const icon = screen.getByTitle("No worktree — not a git repository");
+    expect(icon).toBeTruthy();
+    expect(icon.textContent).toContain("📁");
+  });
+
+  it("does not show worktree icon for terminal sessions", () => {
+    const session = makeSession({ sessionType: "terminal", status: "terminal", isGitRepo: false });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    expect(screen.queryByTitle("Running in a git worktree")).toBeNull();
+    expect(screen.queryByTitle("No worktree — not a git repository")).toBeNull();
+  });
+});
+
 describe("SessionCard terminal sessions", () => {
   it("renders a status dot (not checkmark) for terminal status", () => {
     const session = makeSession({ status: "terminal", sessionType: "terminal" });
