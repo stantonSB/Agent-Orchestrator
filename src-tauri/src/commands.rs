@@ -156,3 +156,19 @@ pub fn git_pull_main(cwd: String) -> Result<(), String> {
 
     Ok(())
 }
+
+#[tauri::command]
+pub fn check_is_git_repo(cwd: String) -> Result<bool, String> {
+    let path = PathBuf::from(&cwd);
+    if !path.exists() {
+        return Err(format!("Directory does not exist: {cwd}"));
+    }
+
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    Ok(output.status.success())
+}
