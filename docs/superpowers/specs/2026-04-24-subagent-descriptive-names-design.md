@@ -18,10 +18,12 @@ Extract a display name from the `prompt` field of the `SubagentStart` hook paylo
 ### Name derivation logic
 
 1. Extract the `prompt` field from the SubagentStart hook JSON.
-2. Take the first sentence: text up to the first `.`, `\n`, or end of string.
+2. Take the first sentence: text up to (but excluding) the first `.`, `\n`, or end of string.
 3. Trim leading/trailing whitespace.
-4. If longer than 40 characters, truncate and append `...`.
+4. If longer than 40 characters, truncate at a Rust `char` boundary and append `...`.
 5. If no prompt is present or the result is empty, fall back to `agent_type` (current behavior).
+
+**Accepted limitation:** Some prompts may start with boilerplate framing (e.g., "You are a helpful assistant.") rather than a task description. The first-sentence heuristic will extract this boilerplate. This is acceptable for v1 — most Agent tool prompts lead with the task description. No special sanitization is needed beyond what React already provides (HTML escaping).
 
 ### Backend changes
 
@@ -44,12 +46,13 @@ Extract a display name from the `prompt` field of the `SubagentStart` hook paylo
 
 ### Examples
 
-| Prompt | Display name |
-|--------|-------------|
-| `"Review plan chunk 1 of the implementation..."` | `"Review plan chunk 1 of the implementat..."` |
-| `"Find all config files"` | `"Find all config files"` |
-| `"Check if auth module handles edge cases. Be thorough."` | `"Check if auth module handles edge cases"` |
-| `""` or missing | Falls back to agent_type (e.g., `"general-purpose"`) |
+| Prompt | Trigger | Display name |
+|--------|---------|-------------|
+| `"Review plan chunk 1 of the implementation that covers auth and routing"` | 40-char truncation | `"Review plan chunk 1 of the implementat..."` |
+| `"Find all config files"` | End of string | `"Find all config files"` |
+| `"Check if auth module handles edge cases. Be thorough."` | Period split (excluded) | `"Check if auth module handles edge cases"` |
+| `"Fix the bug\nAlso check tests"` | Newline split | `"Fix the bug"` |
+| `""` or missing | Fallback | agent_type (e.g., `"general-purpose"`) |
 
 ## Files to modify
 
