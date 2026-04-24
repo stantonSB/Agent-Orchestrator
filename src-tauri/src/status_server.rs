@@ -140,7 +140,7 @@ fn handle_request(
                     let type_name = agent_type.as_deref().unwrap_or("unknown");
                     let submap = tracker.subagent_map_mut();
                     subagent_changed = match notification_type.as_str() {
-                        "subagent_start" => submap.process_start(type_name),
+                        "subagent_start" => submap.process_start(type_name, None),
                         "subagent_stop" => submap.process_stop(type_name),
                         _ => false,
                     };

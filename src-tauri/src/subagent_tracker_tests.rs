@@ -6,7 +6,7 @@ mod tests {
     #[test]
     fn test_process_start_registers_subagent() {
         let mut map = SubagentMap::new();
-        let changed = map.process_start("code-reviewer");
+        let changed = map.process_start("code-reviewer", None);
         assert!(changed);
         assert_eq!(map.subagents().len(), 1);
         assert_eq!(map.subagents()[0].agent_type, "code-reviewer");
@@ -17,9 +17,9 @@ mod tests {
     #[test]
     fn test_multiple_subagents_get_sequential_indexes() {
         let mut map = SubagentMap::new();
-        map.process_start("code-reviewer");
-        map.process_start("code-reviewer");
-        map.process_start("Explore");
+        map.process_start("code-reviewer", None);
+        map.process_start("code-reviewer", None);
+        map.process_start("Explore", None);
 
         let agents = map.subagents();
         assert_eq!(agents.len(), 3);
@@ -31,8 +31,8 @@ mod tests {
     #[test]
     fn test_process_stop_marks_oldest_working_of_same_type() {
         let mut map = SubagentMap::new();
-        map.process_start("code-reviewer");
-        map.process_start("code-reviewer");
+        map.process_start("code-reviewer", None);
+        map.process_start("code-reviewer", None);
 
         let changed = map.process_stop("code-reviewer");
         assert!(changed);
@@ -44,9 +44,9 @@ mod tests {
     #[test]
     fn test_process_stop_fifo_ordering() {
         let mut map = SubagentMap::new();
-        map.process_start("code-reviewer");
-        map.process_start("code-reviewer");
-        map.process_start("code-reviewer");
+        map.process_start("code-reviewer", None);
+        map.process_start("code-reviewer", None);
+        map.process_start("code-reviewer", None);
 
         map.process_stop("code-reviewer");
         map.process_stop("code-reviewer");
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn test_process_stop_fallback_to_any_working() {
         let mut map = SubagentMap::new();
-        map.process_start("code-reviewer");
+        map.process_start("code-reviewer", None);
         let changed = map.process_stop("unknown-type");
         assert!(changed);
         assert_eq!(map.subagents()[0].status, SessionStatus::Finished);
@@ -74,8 +74,8 @@ mod tests {
     #[test]
     fn test_payload_serialization() {
         let mut map = SubagentMap::new();
-        map.process_start("Explore");
-        map.process_start("code-reviewer");
+        map.process_start("Explore", None);
+        map.process_start("code-reviewer", None);
 
         let payload = map.payload();
         assert_eq!(payload.len(), 2);
@@ -94,7 +94,7 @@ mod tests {
         let mut map = SubagentMap::new();
         assert!(!map.has_active());
 
-        map.process_start("code-reviewer");
+        map.process_start("code-reviewer", None);
         assert!(map.has_active());
 
         map.process_stop("code-reviewer");
@@ -104,9 +104,9 @@ mod tests {
     #[test]
     fn test_mixed_agent_types_stop_correctly() {
         let mut map = SubagentMap::new();
-        map.process_start("code-reviewer");
-        map.process_start("Explore");
-        map.process_start("code-reviewer");
+        map.process_start("code-reviewer", None);
+        map.process_start("Explore", None);
+        map.process_start("code-reviewer", None);
 
         // Stop code-reviewer — should mark the first one (index 1)
         map.process_stop("code-reviewer");
