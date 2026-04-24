@@ -13,6 +13,7 @@ pub struct SessionInfo {
     pub name: String,
     pub cwd: PathBuf,
     pub created_at_epoch_ms: u128,
+    pub session_type: String,
 }
 
 impl From<SessionListEntry> for SessionInfo {
@@ -22,6 +23,7 @@ impl From<SessionListEntry> for SessionInfo {
             name: e.name,
             cwd: e.cwd,
             created_at_epoch_ms: e.created_at_epoch_ms,
+            session_type: e.session_type,
         }
     }
 }
@@ -35,11 +37,17 @@ pub fn create_session(
     args: Option<Vec<String>>,
     cols: Option<u16>,
     rows: Option<u16>,
+    session_type: Option<String>,
 ) -> Result<String, String> {
     let path = PathBuf::from(&cwd);
     if !path.exists() {
         return Err(format!("Directory does not exist: {cwd}"));
     }
+
+    let session_type = match session_type.as_deref() {
+        Some("terminal") => crate::pty_manager::SessionType::Terminal,
+        _ => crate::pty_manager::SessionType::Claude,
+    };
 
     let command = command.unwrap_or_else(|| {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
@@ -48,7 +56,7 @@ pub fn create_session(
     let cols = cols.unwrap_or(80);
     let rows = rows.unwrap_or(24);
 
-    match state.pty.create(name, path, command, args, cols, rows) {
+    match state.pty.create(name, path, command, args, cols, rows, session_type) {
         PtyResponse::Created { id } => Ok(id),
         PtyResponse::Error(msg) => Err(msg),
         other => Err(format!("Unexpected response: {:?}", other)),
