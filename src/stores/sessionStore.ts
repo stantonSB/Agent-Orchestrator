@@ -22,7 +22,7 @@ interface SessionState {
   dismissSession: (id: string) => void;
 
   // Tauri IPC actions
-  createSession: (name: string, cwd: string, skipPermissions?: boolean, pullLatest?: boolean) => Promise<void>;
+  createSession: (name: string, cwd: string, skipPermissions?: boolean, pullLatest?: boolean, initWithClaude?: boolean) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
@@ -180,28 +180,50 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  createSession: async (name, cwd, skipPermissions = true, pullLatest = false) => {
+  createSession: async (name, cwd, skipPermissions = true, pullLatest = false, initWithClaude = true) => {
     if (pullLatest) {
       await invoke("git_pull_main", { cwd });
     }
 
-    const args = ["--worktree"];
-    if (skipPermissions) {
-      args.unshift("--dangerously-skip-permissions");
+    let id: string;
+    let session: SessionInfo;
+
+    if (initWithClaude) {
+      const args = ["--worktree"];
+      if (skipPermissions) {
+        args.unshift("--dangerously-skip-permissions");
+      }
+      id = await invoke<string>("create_session", {
+        name,
+        cwd,
+        command: "claude",
+        args,
+        sessionType: "claude",
+      });
+      session = {
+        id,
+        name,
+        status: "starting",
+        createdAt: Date.now(),
+        cwd,
+        sessionType: "claude",
+      };
+    } else {
+      id = await invoke<string>("create_session", {
+        name,
+        cwd,
+        sessionType: "terminal",
+      });
+      session = {
+        id,
+        name,
+        status: "terminal",
+        createdAt: Date.now(),
+        cwd,
+        sessionType: "terminal",
+      };
     }
-    const id = await invoke<string>("create_session", {
-      name,
-      cwd,
-      command: "claude",
-      args,
-    });
-    const session: SessionInfo = {
-      id,
-      name,
-      status: "starting",
-      createdAt: Date.now(),
-      cwd,
-    };
+
     get().addSession(session);
     get().setActiveSession(id);
     get().setupEventListeners(id);
@@ -226,27 +248,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setupEventListeners: (sessionId) => {
     let cancelled = false;
-
     const cleanups: Promise<UnlistenFn>[] = [];
+    const session = get().sessions.get(sessionId);
 
-    cleanups.push(
-      listen<{ status: SessionStatus }>(`session-status-${sessionId}`, (event) => {
-        get().updateSessionStatus(sessionId, event.payload.status);
-      })
-    );
+    // Only listen for status events on Claude sessions
+    if (session?.sessionType !== "terminal") {
+      cleanups.push(
+        listen<{ status: SessionStatus }>(`session-status-${sessionId}`, (event) => {
+          get().updateSessionStatus(sessionId, event.payload.status);
+        })
+      );
+    }
 
     cleanups.push(
       listen<{ code: number | null }>(`session-exit-${sessionId}`, (event) => {
-        const status: SessionStatus = event.payload.code === 0 ? "finished" : "error";
-        get().updateSessionStatus(sessionId, status);
+        const session = get().sessions.get(sessionId);
+        if (session?.sessionType === "terminal") {
+          // Terminal sessions only show error on non-zero exit
+          if (event.payload.code !== null && event.payload.code !== 0) {
+            get().updateSessionStatus(sessionId, "error");
+          }
+        } else {
+          const status: SessionStatus = event.payload.code === 0 ? "finished" : "error";
+          get().updateSessionStatus(sessionId, status);
+        }
       })
     );
 
-    cleanups.push(
-      listen<SubagentStatus[]>(`session-subagents-${sessionId}`, (event) => {
-        get().updateSubagents(sessionId, event.payload);
-      })
-    );
+    // Only listen for subagent events on Claude sessions
+    if (session?.sessionType !== "terminal") {
+      cleanups.push(
+        listen<SubagentStatus[]>(`session-subagents-${sessionId}`, (event) => {
+          get().updateSubagents(sessionId, event.payload);
+        })
+      );
+    }
 
     eventCleanups.set(sessionId, [() => { cancelled = true; }]);
 

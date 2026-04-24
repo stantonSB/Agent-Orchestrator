@@ -29,6 +29,7 @@ describe("sessionStore", () => {
         status: "starting",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
 
       const { sessions } = useSessionStore.getState();
@@ -46,6 +47,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
       store.removeSession("abc-123");
 
@@ -61,6 +63,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
       store.setActiveSession("abc-123");
       store.removeSession("abc-123");
@@ -77,6 +80,7 @@ describe("sessionStore", () => {
         status: "working",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
       store.addSession({
         id: "session-2",
@@ -84,6 +88,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
       store.setActiveSession("session-1");
       store.removeSession("session-1");
@@ -102,6 +107,7 @@ describe("sessionStore", () => {
         status: "starting",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
       store.updateSessionStatus("abc-123", "working");
 
@@ -125,6 +131,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
       store.setActiveSession("abc-123");
 
@@ -145,6 +152,7 @@ describe("sessionStore", () => {
         cwd: "/path/to/project",
         command: "claude",
         args: ["--dangerously-skip-permissions", "--worktree"],
+        sessionType: "claude",
       });
 
       const { sessions, activeSessionId } = useSessionStore.getState();
@@ -184,6 +192,24 @@ describe("sessionStore", () => {
       expect(invoke).toHaveBeenCalledWith("create_session", expect.anything());
     });
 
+    it("creates a terminal session when initWithClaude is false", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("terminal-id-1");
+
+      const store = useSessionStore.getState();
+      await store.createSession("My Terminal", "/path/to/project", true, false, false);
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "My Terminal",
+        cwd: "/path/to/project",
+        sessionType: "terminal",
+      });
+
+      const session = useSessionStore.getState().sessions.get("terminal-id-1");
+      expect(session?.sessionType).toBe("terminal");
+      expect(session?.status).toBe("terminal");
+    });
+
     it("does NOT create session when git_pull_main fails", async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       vi.mocked(invoke).mockRejectedValueOnce(new Error("git pull failed"));
@@ -210,6 +236,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/test/path",
+        sessionType: "claude",
       });
 
       await store.closeSession("abc-123");
@@ -277,6 +304,7 @@ describe("sessionStore", () => {
         status: "working",
         createdAt: Date.now(),
         cwd: "/test",
+        sessionType: "claude",
       });
       store.updateSubagents("session-1", [
         { id: "cc-child-1", index: 1, status: "working", name: null, created_at: 1000 },
@@ -295,6 +323,7 @@ describe("sessionStore", () => {
         status: "finished",
         createdAt: Date.now(),
         cwd: "/test",
+        sessionType: "claude",
       });
       store.updateSubagents("session-1", [
         { id: "cc-child-1", index: 1, status: "finished", name: null, created_at: 1000 },
@@ -334,6 +363,7 @@ describe("sessionStore", () => {
         status: "working",
         createdAt: Date.now(),
         cwd: "/test",
+        sessionType: "claude",
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
@@ -357,6 +387,7 @@ describe("sessionStore", () => {
         status: "working",
         createdAt: Date.now(),
         cwd: "/test",
+        sessionType: "claude",
       });
       store.addSession({
         id: "session-2",
@@ -364,6 +395,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/other",
+        sessionType: "claude",
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [
@@ -384,6 +416,7 @@ describe("sessionStore", () => {
         status: "working",
         createdAt: Date.now(),
         cwd: "/test",
+        sessionType: "claude",
       });
       store.addSession({
         id: "session-2",
@@ -391,6 +424,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/other",
+        sessionType: "claude",
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
@@ -412,6 +446,7 @@ describe("sessionStore", () => {
         status: "working",
         createdAt: Date.now(),
         cwd: "/test",
+        sessionType: "claude",
       });
       store.addSession({
         id: "session-2",
@@ -419,6 +454,7 @@ describe("sessionStore", () => {
         status: "idle",
         createdAt: Date.now(),
         cwd: "/other",
+        sessionType: "claude",
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [
