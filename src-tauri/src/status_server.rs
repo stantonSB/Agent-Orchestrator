@@ -70,6 +70,30 @@ fn accept_loop(
     }
 }
 
+/// Derive a short display name from a subagent's prompt.
+/// Takes the first sentence (up to first '.' or '\n'), trims whitespace,
+/// and truncates to 40 chars at a char boundary.
+fn derive_display_name(prompt: &str) -> Option<String> {
+    let first_sentence = prompt
+        .split_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(prompt);
+    let first_sentence = first_sentence
+        .split_once('\n')
+        .map(|(s, _)| s)
+        .unwrap_or(first_sentence);
+    let trimmed = first_sentence.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() > 40 {
+        let truncated: String = trimmed.chars().take(40).collect();
+        Some(format!("{}...", truncated.trim_end()))
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn handle_request(
     mut request: tiny_http::Request,
     trackers: &Arc<Mutex<HashMap<String, StatusTracker>>>,
@@ -110,6 +134,7 @@ fn handle_request(
 
     // Extract agent_type if present (SubagentStart/SubagentStop events include this).
     let agent_type = json.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let prompt = json.get("prompt").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // Extract the event type.
     let hook_event_name = json.get("hook_event_name").and_then(|v| v.as_str());
@@ -140,7 +165,10 @@ fn handle_request(
                     let type_name = agent_type.as_deref().unwrap_or("unknown");
                     let submap = tracker.subagent_map_mut();
                     subagent_changed = match notification_type.as_str() {
-                        "subagent_start" => submap.process_start(type_name, None),
+                        "subagent_start" => {
+                            let display_name = prompt.as_deref().and_then(derive_display_name);
+                            submap.process_start(type_name, display_name)
+                        }
                         "subagent_stop" => submap.process_stop(type_name),
                         _ => false,
                     };
@@ -497,5 +525,102 @@ mod tests {
         assert_eq!(parse_session_id("/status/"), None);
         assert_eq!(parse_session_id("/other/abc"), None);
         assert_eq!(parse_session_id("/status/a/b"), None);
+    }
+
+    #[test]
+    fn test_subagent_start_extracts_display_name_from_prompt() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"general-purpose","prompt":"Review plan chunk 1 of the implementation"}"#;
+        post(port, "/status/ao-sess", body);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let payload = tracker.subagent_map().payload();
+        assert_eq!(payload[0].name, Some("Review plan chunk 1 of the implementatio...".to_string()));
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_subagent_start_prompt_sentence_split() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"general-purpose","prompt":"Check auth module. Be thorough about edge cases."}"#;
+        post(port, "/status/ao-sess", body);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let payload = tracker.subagent_map().payload();
+        assert_eq!(payload[0].name, Some("Check auth module".to_string()));
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_subagent_start_no_prompt_falls_back_to_agent_type() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
+        post(port, "/status/ao-sess", body);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let payload = tracker.subagent_map().payload();
+        assert_eq!(payload[0].name, Some("code-reviewer".to_string()));
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_derive_display_name_basic() {
+        assert_eq!(derive_display_name("Find config files"), Some("Find config files".to_string()));
+    }
+
+    #[test]
+    fn test_derive_display_name_period_split() {
+        assert_eq!(
+            derive_display_name("Check auth module. Be thorough."),
+            Some("Check auth module".to_string())
+        );
+    }
+
+    #[test]
+    fn test_derive_display_name_newline_split() {
+        assert_eq!(
+            derive_display_name("Fix the bug\nAlso check tests"),
+            Some("Fix the bug".to_string())
+        );
+    }
+
+    #[test]
+    fn test_derive_display_name_truncation() {
+        let long = "Review plan chunk 1 of the implementation that covers auth and routing";
+        let result = derive_display_name(long).unwrap();
+        assert!(result.ends_with("..."));
+        assert!(result.chars().count() <= 43);
+    }
+
+    #[test]
+    fn test_derive_display_name_empty() {
+        assert_eq!(derive_display_name(""), None);
+        assert_eq!(derive_display_name("   "), None);
+    }
+
+    #[test]
+    fn test_derive_display_name_period_before_newline() {
+        assert_eq!(
+            derive_display_name("Fix auth.rs\nAlso check tests"),
+            Some("Fix auth".to_string())
+        );
     }
 }
