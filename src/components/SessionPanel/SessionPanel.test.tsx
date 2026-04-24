@@ -18,8 +18,8 @@ describe("SessionPanel", () => {
 
   it("renders session cards for each session", () => {
     const sessions: SessionInfo[] = [
-      { id: "1", name: "Session A", status: "working", createdAt: Date.now(), cwd: "/projects/app", sessionType: "claude" },
-      { id: "2", name: "Session B", status: "idle", createdAt: Date.now(), cwd: "/projects/app", sessionType: "claude" },
+      { id: "1", name: "Session A", status: "working", createdAt: Date.now(), cwd: "/projects/app", sessionType: "claude", isGitRepo: true },
+      { id: "2", name: "Session B", status: "idle", createdAt: Date.now(), cwd: "/projects/app", sessionType: "claude", isGitRepo: true },
     ];
     render(
       <SessionPanel
@@ -47,8 +47,8 @@ describe("SessionPanel", () => {
 
   it("groups sessions by project with headers", () => {
     const sessions: SessionInfo[] = [
-      { id: "1", name: "Fix bug", status: "working", createdAt: 1000, cwd: "/projects/app-one", sessionType: "claude" },
-      { id: "2", name: "Add feature", status: "idle", createdAt: 2000, cwd: "/projects/app-two", sessionType: "claude" },
+      { id: "1", name: "Fix bug", status: "working", createdAt: 1000, cwd: "/projects/app-one", sessionType: "claude", isGitRepo: true },
+      { id: "2", name: "Add feature", status: "idle", createdAt: 2000, cwd: "/projects/app-two", sessionType: "claude", isGitRepo: true },
     ];
     render(
       <SessionPanel
@@ -64,7 +64,7 @@ describe("SessionPanel", () => {
 
   it("collapses a project group when header is clicked", () => {
     const sessions: SessionInfo[] = [
-      { id: "1", name: "Fix bug", status: "working", createdAt: 1000, cwd: "/projects/app-one", sessionType: "claude" },
+      { id: "1", name: "Fix bug", status: "working", createdAt: 1000, cwd: "/projects/app-one", sessionType: "claude", isGitRepo: true },
     ];
     render(
       <SessionPanel
@@ -85,8 +85,8 @@ describe("SessionPanel", () => {
 
   it("orders project groups by newest session first", () => {
     const sessions: SessionInfo[] = [
-      { id: "1", name: "Old session", status: "idle", createdAt: 1000, cwd: "/projects/old-project", sessionType: "claude" },
-      { id: "2", name: "New session", status: "working", createdAt: 3000, cwd: "/projects/new-project", sessionType: "claude" },
+      { id: "1", name: "Old session", status: "idle", createdAt: 1000, cwd: "/projects/old-project", sessionType: "claude", isGitRepo: true },
+      { id: "2", name: "New session", status: "working", createdAt: 3000, cwd: "/projects/new-project", sessionType: "claude", isGitRepo: true },
     ];
     render(
       <SessionPanel
@@ -105,8 +105,8 @@ describe("SessionPanel", () => {
 
   it("keeps sessions with same folder name but different paths separate", () => {
     const sessions: SessionInfo[] = [
-      { id: "1", name: "Work app", status: "working", createdAt: 1000, cwd: "/work/myapp", sessionType: "claude" },
-      { id: "2", name: "Personal app", status: "idle", createdAt: 2000, cwd: "/personal/myapp", sessionType: "claude" },
+      { id: "1", name: "Work app", status: "working", createdAt: 1000, cwd: "/work/myapp", sessionType: "claude", isGitRepo: true },
+      { id: "2", name: "Personal app", status: "idle", createdAt: 2000, cwd: "/personal/myapp", sessionType: "claude", isGitRepo: true },
     ];
     render(
       <SessionPanel
@@ -133,7 +133,7 @@ describe("SessionPanel", () => {
     });
 
     const sessions: SessionInfo[] = [
-      { id: "1", name: "Feature work", status: "working", createdAt: 1000, cwd: "/projects/app", sessionType: "claude" },
+      { id: "1", name: "Feature work", status: "working", createdAt: 1000, cwd: "/projects/app", sessionType: "claude", isGitRepo: true },
     ];
     render(
       <SessionPanel
