@@ -88,6 +88,9 @@ fn is_already_installed(script_path: &Path, settings_path: &Path, profile_path: 
     if !settings_has_our_subagent_stop_hook(settings_path) {
         return false;
     }
+    if !settings_has_our_subagent_start_hook(settings_path) {
+        return false;
+    }
 
     // Check .claude.json has idle threshold
     if !profile_has_idle_threshold(profile_path) {
@@ -131,6 +134,18 @@ fn settings_has_our_subagent_stop_hook(settings_path: &Path) -> bool {
         Err(_) => return false,
     };
     hook_array_has_our_script(&val, "SubagentStop")
+}
+
+fn settings_has_our_subagent_start_hook(settings_path: &Path) -> bool {
+    let content = match fs::read_to_string(settings_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let val: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    hook_array_has_our_script(&val, "SubagentStart")
 }
 
 fn hook_array_has_our_script(val: &serde_json::Value, hook_type: &str) -> bool {
@@ -195,8 +210,9 @@ fn merge_hook_settings(settings_path: &Path) -> Result<(), String> {
     let need_notification = !notification_array_has_our_hook(&val);
     let need_stop = !hook_array_has_our_script(&val, "Stop");
     let need_subagent_stop = !hook_array_has_our_script(&val, "SubagentStop");
+    let need_subagent_start = !hook_array_has_our_script(&val, "SubagentStart");
 
-    if !need_notification && !need_stop && !need_subagent_stop {
+    if !need_notification && !need_stop && !need_subagent_stop && !need_subagent_start {
         return Ok(());
     }
 
@@ -253,6 +269,18 @@ fn merge_hook_settings(settings_path: &Path) -> Result<(), String> {
         subagent_stop_hooks
             .as_array_mut()
             .ok_or("SubagentStop is not an array")?
+            .push(our_hook_entry.clone());
+    }
+
+    // Add SubagentStart hook if missing — fires when a subagent spawns,
+    // enabling real-time tracking of subagent lifecycle from the start.
+    if need_subagent_start {
+        let subagent_start_hooks = hooks_obj
+            .entry("SubagentStart")
+            .or_insert_with(|| serde_json::Value::Array(vec![]));
+        subagent_start_hooks
+            .as_array_mut()
+            .ok_or("SubagentStart is not an array")?
             .push(our_hook_entry.clone());
     }
 

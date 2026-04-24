@@ -590,14 +590,14 @@ mod tests {
     #[test]
     fn test_status_tracker_has_subagent_map() {
         let tracker = StatusTracker::new();
-        assert!(tracker.subagent_map().parent_session_id().is_none());
+        assert_eq!(tracker.subagent_map().subagents().len(), 0);
     }
 
     #[test]
     fn test_subagent_map_mut_allows_modification() {
         let mut tracker = StatusTracker::new();
-        tracker.subagent_map_mut().process_event("parent", "idle_prompt");
-        assert_eq!(tracker.subagent_map().parent_session_id(), Some("parent"));
+        tracker.subagent_map_mut().process_start("code-reviewer");
+        assert_eq!(tracker.subagent_map().subagents().len(), 1);
     }
 
     // set_status tests
