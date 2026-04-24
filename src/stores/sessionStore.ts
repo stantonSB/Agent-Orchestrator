@@ -22,7 +22,7 @@ interface SessionState {
   dismissSession: (id: string) => void;
 
   // Tauri IPC actions
-  createSession: (name: string, cwd: string, skipPermissions?: boolean, pullLatest?: boolean, initWithClaude?: boolean) => Promise<void>;
+  createSession: (name: string, cwd: string, skipPermissions?: boolean, pullLatest?: boolean, initWithClaude?: boolean, isGitRepo?: boolean) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
@@ -180,7 +180,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  createSession: async (name, cwd, skipPermissions = true, pullLatest = false, initWithClaude = true) => {
+  createSession: async (name, cwd, skipPermissions = true, pullLatest = false, initWithClaude = true, isGitRepo = true) => {
     if (pullLatest) {
       await invoke("git_pull_main", { cwd });
     }
@@ -189,9 +189,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let session: SessionInfo;
 
     if (initWithClaude) {
-      const args = ["--worktree"];
+      const args: string[] = [];
       if (skipPermissions) {
-        args.unshift("--dangerously-skip-permissions");
+        args.push("--dangerously-skip-permissions");
+      }
+      if (isGitRepo) {
+        args.push("--worktree");
       }
       id = await invoke<string>("create_session", {
         name,
@@ -207,7 +210,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         createdAt: Date.now(),
         cwd,
         sessionType: "claude",
-        isGitRepo: true,
+        isGitRepo,
       };
     } else {
       id = await invoke<string>("create_session", {

@@ -229,6 +229,44 @@ describe("sessionStore", () => {
       expect(invoke).not.toHaveBeenCalledWith("create_session", expect.anything());
       expect(useSessionStore.getState().sessions.size).toBe(0);
     });
+
+    it("omits --worktree when isGitRepo is false", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("non-git-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Non-Git Session", "/path/to/non-git", true, false, true, false);
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Non-Git Session",
+        cwd: "/path/to/non-git",
+        command: "claude",
+        args: ["--dangerously-skip-permissions"],
+        sessionType: "claude",
+      });
+
+      const session = useSessionStore.getState().sessions.get("non-git-id");
+      expect(session?.isGitRepo).toBe(false);
+    });
+
+    it("includes --worktree when isGitRepo is true", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("git-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Git Session", "/path/to/git-repo", true, false, true, true);
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Git Session",
+        cwd: "/path/to/git-repo",
+        command: "claude",
+        args: ["--dangerously-skip-permissions", "--worktree"],
+        sessionType: "claude",
+      });
+
+      const session = useSessionStore.getState().sessions.get("git-id");
+      expect(session?.isGitRepo).toBe(true);
+    });
   });
 
   describe("closeSession", () => {
