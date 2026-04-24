@@ -19,4 +19,5 @@ export interface SubagentStatus {
   index: number;
   status: SessionStatus;
   name: string | null;
+  created_at: number;
 }

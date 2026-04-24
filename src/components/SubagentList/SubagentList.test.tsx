@@ -11,8 +11,8 @@ describe("SubagentList", () => {
 
   it("renders a dot and name for each subagent", () => {
     const subagents: SubagentStatus[] = [
-      { id: "a", index: 1, status: "working", name: "Exploring codebase" },
-      { id: "b", index: 2, status: "idle", name: null },
+      { id: "a", index: 1, status: "working", name: "Exploring codebase", created_at: 1000 },
+      { id: "b", index: 2, status: "idle", name: null, created_at: 2000 },
     ];
     render(<SubagentList subagents={subagents} />);
     expect(screen.getByText("Exploring codebase")).toBeTruthy();
@@ -21,7 +21,7 @@ describe("SubagentList", () => {
 
   it("renders finished subagents with dimmed class", () => {
     const subagents: SubagentStatus[] = [
-      { id: "a", index: 1, status: "finished", name: "Done agent" },
+      { id: "a", index: 1, status: "finished", name: "Done agent", created_at: 1000 },
     ];
     const { container } = render(<SubagentList subagents={subagents} />);
     const entry = container.querySelector("[class*='finished']");
@@ -30,7 +30,7 @@ describe("SubagentList", () => {
 
   it("shows correct status dot classes", () => {
     const subagents: SubagentStatus[] = [
-      { id: "a", index: 1, status: "needs_attention", name: null },
+      { id: "a", index: 1, status: "needs_attention", name: null, created_at: 1000 },
     ];
     const { container } = render(<SubagentList subagents={subagents} />);
     const dot = container.querySelector("[class*='NeedsAttention']");

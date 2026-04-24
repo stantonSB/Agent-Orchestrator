@@ -126,8 +126,8 @@ describe("SessionPanel", () => {
     useSessionStore.setState({
       subagents: new Map([
         ["1", [
-          { id: "cc-child-1", index: 1, status: "working", name: "Exploring" },
-          { id: "cc-child-2", index: 2, status: "idle", name: null },
+          { id: "cc-child-1", index: 1, status: "working", name: "Exploring", created_at: 1000 },
+          { id: "cc-child-2", index: 2, status: "idle", name: null, created_at: 2000 },
         ]],
       ]),
     });
