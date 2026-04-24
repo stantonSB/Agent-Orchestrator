@@ -1,14 +1,13 @@
 use crate::status_parser::SessionStatus;
-use std::collections::HashMap;
 use std::time::Instant;
 
 /// Metadata for a single detected subagent.
 #[derive(Debug, Clone)]
 pub struct SubagentInfo {
-    pub claude_session_id: String,
+    pub id: String,
     pub index: u16,
     pub status: SessionStatus,
-    pub name: Option<String>,
+    pub agent_type: String,
     pub finished_at: Option<Instant>,
 }
 
@@ -24,173 +23,201 @@ pub struct SubagentStatusPayload {
 impl From<&SubagentInfo> for SubagentStatusPayload {
     fn from(info: &SubagentInfo) -> Self {
         Self {
-            id: info.claude_session_id.clone(),
+            id: info.id.clone(),
             index: info.index,
             status: info.status.clone(),
-            name: info.name.clone(),
+            name: Some(info.agent_type.clone()),
         }
     }
 }
 
 /// Tracks subagents for a single parent session.
 ///
-/// The first `session_id` seen via `process_event` is recorded as the parent.
-/// Subsequent new `session_id` values are registered as subagents.
+/// Subagents are identified by `agent_type` from SubagentStart/SubagentStop
+/// hook events. Since all subagents share the parent's `session_id`, we cannot
+/// use session_id to distinguish them. Instead, we assign auto-incrementing
+/// IDs and match SubagentStop to the oldest Working subagent of the same type.
 pub struct SubagentMap {
-    parent_claude_id: Option<String>,
-    agents: HashMap<String, SubagentInfo>,
+    agents: Vec<SubagentInfo>,
     next_index: u16,
-    pending_events: Vec<(String, String)>, // (session_id, notification_type)
 }
-
-const MAX_PENDING: usize = 32;
 
 impl SubagentMap {
     pub fn new() -> Self {
         Self {
-            parent_claude_id: None,
-            agents: HashMap::new(),
+            agents: Vec::new(),
             next_index: 1,
-            pending_events: Vec::new(),
         }
     }
 
-    /// Returns the parent's Claude Code session_id, if established.
-    pub fn parent_session_id(&self) -> Option<&str> {
-        self.parent_claude_id.as_deref()
-    }
-
     /// Returns a slice of all tracked subagents.
-    pub fn subagents(&self) -> Vec<&SubagentInfo> {
-        self.agents.values().collect()
+    pub fn subagents(&self) -> &[SubagentInfo] {
+        &self.agents
     }
 
     /// Returns serializable payload for all subagents.
     pub fn payload(&self) -> Vec<SubagentStatusPayload> {
-        let mut list: Vec<_> = self.agents.values().map(SubagentStatusPayload::from).collect();
+        let mut list: Vec<_> = self.agents.iter().map(SubagentStatusPayload::from).collect();
         list.sort_by_key(|s| s.index);
         list
     }
 
     /// Returns true if any subagent is in NeedsAttention status.
     pub fn any_needs_attention(&self) -> bool {
-        self.agents.values().any(|a| a.status == SessionStatus::NeedsAttention)
+        self.agents.iter().any(|a| a.status == SessionStatus::NeedsAttention)
     }
 
-    /// Process a hook event. Returns true if subagent state changed (triggering a re-emit).
-    ///
-    /// `claude_session_id`: the session_id from the hook JSON body
-    /// `notification_type`: normalized event type (idle_prompt, permission_prompt, stop, etc.)
-    pub fn process_event(&mut self, claude_session_id: &str, notification_type: &str) -> bool {
-        // Establish parent identity on first event
-        if self.parent_claude_id.is_none() {
-            self.parent_claude_id = Some(claude_session_id.to_string());
-            // Replay any pending events
-            let pending = std::mem::take(&mut self.pending_events);
-            let mut changed = false;
-            for (sid, ntype) in pending {
-                if sid != claude_session_id {
-                    changed |= self.register_or_update_subagent(&sid, &ntype);
-                }
-            }
-            return changed;
+    /// Register a new subagent when SubagentStart fires. Returns true (state changed).
+    pub fn process_start(&mut self, agent_type: &str) -> bool {
+        let index = self.next_index;
+        self.next_index += 1;
+        let id = format!("subagent-{}", index);
+        self.agents.push(SubagentInfo {
+            id,
+            index,
+            status: SessionStatus::Working,
+            agent_type: agent_type.to_string(),
+            finished_at: None,
+        });
+        true
+    }
+
+    /// Mark the oldest Working subagent of the given type as Finished.
+    /// Returns true if state changed.
+    pub fn process_stop(&mut self, agent_type: &str) -> bool {
+        // Find the oldest (lowest index) Working subagent with matching type
+        if let Some(agent) = self.agents.iter_mut()
+            .filter(|a| a.agent_type == agent_type && a.status == SessionStatus::Working)
+            .min_by_key(|a| a.index)
+        {
+            agent.status = SessionStatus::Finished;
+            agent.finished_at = Some(Instant::now());
+            return true;
         }
 
-        // Parent event — not our concern
-        if self.parent_claude_id.as_deref() == Some(claude_session_id) {
-            return false;
+        // Fallback: if no Working agent of that type, try any Working agent
+        // (handles case where agent_type might differ between start/stop)
+        if let Some(agent) = self.agents.iter_mut()
+            .filter(|a| a.status == SessionStatus::Working)
+            .min_by_key(|a| a.index)
+        {
+            agent.status = SessionStatus::Finished;
+            agent.finished_at = Some(Instant::now());
+            return true;
         }
 
-        // Subagent event
-        self.register_or_update_subagent(claude_session_id, notification_type)
+        false
     }
 
-    /// Returns true if this session_id is the known parent.
-    pub fn is_parent(&self, claude_session_id: &str) -> bool {
-        self.parent_claude_id.as_deref() == Some(claude_session_id)
+    /// Returns true if there are any active (non-finished) subagents.
+    pub fn has_active(&self) -> bool {
+        self.agents.iter().any(|a| {
+            a.status != SessionStatus::Finished && a.status != SessionStatus::Error
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_start_registers_subagent() {
+        let mut map = SubagentMap::new();
+        assert!(map.process_start("code-reviewer"));
+        assert_eq!(map.subagents().len(), 1);
+        assert_eq!(map.subagents()[0].agent_type, "code-reviewer");
+        assert_eq!(map.subagents()[0].status, SessionStatus::Working);
+        assert_eq!(map.subagents()[0].index, 1);
     }
 
-    /// Returns true if parent identity has not been established yet.
-    pub fn parent_unknown(&self) -> bool {
-        self.parent_claude_id.is_none()
+    #[test]
+    fn test_multiple_starts() {
+        let mut map = SubagentMap::new();
+        map.process_start("code-reviewer");
+        map.process_start("code-reviewer");
+        map.process_start("Explore");
+        assert_eq!(map.subagents().len(), 3);
+        assert_eq!(map.subagents()[0].index, 1);
+        assert_eq!(map.subagents()[1].index, 2);
+        assert_eq!(map.subagents()[2].index, 3);
     }
 
-    /// Buffer an event when parent identity is not yet established.
-    pub fn buffer_event(&mut self, claude_session_id: &str, notification_type: &str) {
-        if self.pending_events.len() >= MAX_PENDING {
-            self.pending_events.remove(0);
-        }
-        self.pending_events.push((
-            claude_session_id.to_string(),
-            notification_type.to_string(),
-        ));
+    #[test]
+    fn test_process_stop_marks_oldest_working() {
+        let mut map = SubagentMap::new();
+        map.process_start("code-reviewer");
+        map.process_start("code-reviewer");
+
+        assert!(map.process_stop("code-reviewer"));
+        // Oldest (index 1) should be finished
+        assert_eq!(map.subagents()[0].status, SessionStatus::Finished);
+        assert_eq!(map.subagents()[1].status, SessionStatus::Working);
     }
 
-    fn register_or_update_subagent(&mut self, claude_session_id: &str, notification_type: &str) -> bool {
-        if let Some(agent) = self.agents.get_mut(claude_session_id) {
-            // Update existing subagent status
-            let new_status = Self::notification_to_status(notification_type, &agent.status);
-            if let Some(status) = new_status {
-                let finished = status == SessionStatus::Finished;
-                agent.status = status;
-                if finished {
-                    agent.finished_at = Some(Instant::now());
-                }
-                return true;
-            }
-            false
-        } else {
-            // New subagent detected
-            let status = Self::initial_status(notification_type);
-            let index = self.next_index;
-            self.next_index += 1;
-            let finished = status == SessionStatus::Finished;
-            self.agents.insert(
-                claude_session_id.to_string(),
-                SubagentInfo {
-                    claude_session_id: claude_session_id.to_string(),
-                    index,
-                    status,
-                    name: None,
-                    finished_at: if finished { Some(Instant::now()) } else { None },
-                },
-            );
-            true
-        }
+    #[test]
+    fn test_process_stop_fifo_ordering() {
+        let mut map = SubagentMap::new();
+        map.process_start("code-reviewer");
+        map.process_start("code-reviewer");
+        map.process_start("code-reviewer");
+
+        map.process_stop("code-reviewer");
+        map.process_stop("code-reviewer");
+
+        assert_eq!(map.subagents()[0].status, SessionStatus::Finished);
+        assert_eq!(map.subagents()[1].status, SessionStatus::Finished);
+        assert_eq!(map.subagents()[2].status, SessionStatus::Working);
     }
 
-    fn notification_to_status(notification_type: &str, current: &SessionStatus) -> Option<SessionStatus> {
-        match notification_type {
-            "stop" => match current {
-                SessionStatus::Starting => Some(SessionStatus::Idle),
-                SessionStatus::Working | SessionStatus::NeedsAttention | SessionStatus::Idle => {
-                    Some(SessionStatus::Finished)
-                }
-                _ => None,
-            },
-            "idle_prompt" => match current {
-                SessionStatus::Starting => Some(SessionStatus::Idle),
-                SessionStatus::Working | SessionStatus::NeedsAttention => {
-                    Some(SessionStatus::Finished)
-                }
-                // Already Idle — no transition
-                _ => None,
-            },
-            "permission_prompt" | "elicitation_dialog" => match current {
-                SessionStatus::Working | SessionStatus::Starting | SessionStatus::Idle => {
-                    Some(SessionStatus::NeedsAttention)
-                }
-                _ => None,
-            },
-            _ => None,
-        }
+    #[test]
+    fn test_process_stop_no_match_returns_false() {
+        let mut map = SubagentMap::new();
+        assert!(!map.process_stop("code-reviewer"));
     }
 
-    fn initial_status(notification_type: &str) -> SessionStatus {
-        match notification_type {
-            "idle_prompt" | "stop" => SessionStatus::Idle,
-            "permission_prompt" | "elicitation_dialog" => SessionStatus::NeedsAttention,
-            _ => SessionStatus::Working,
-        }
+    #[test]
+    fn test_process_stop_fallback_to_any_working() {
+        let mut map = SubagentMap::new();
+        map.process_start("code-reviewer");
+        // Stop with different type — falls back to any working agent
+        assert!(map.process_stop("unknown-type"));
+        assert_eq!(map.subagents()[0].status, SessionStatus::Finished);
+    }
+
+    #[test]
+    fn test_any_needs_attention() {
+        let mut map = SubagentMap::new();
+        map.process_start("code-reviewer");
+        assert!(!map.any_needs_attention());
+
+        // Manually set to NeedsAttention for testing
+        map.agents[0].status = SessionStatus::NeedsAttention;
+        assert!(map.any_needs_attention());
+    }
+
+    #[test]
+    fn test_payload_sorted_by_index() {
+        let mut map = SubagentMap::new();
+        map.process_start("Explore");
+        map.process_start("code-reviewer");
+        let payload = map.payload();
+        assert_eq!(payload.len(), 2);
+        assert_eq!(payload[0].index, 1);
+        assert_eq!(payload[0].name, Some("Explore".to_string()));
+        assert_eq!(payload[1].index, 2);
+        assert_eq!(payload[1].name, Some("code-reviewer".to_string()));
+    }
+
+    #[test]
+    fn test_has_active() {
+        let mut map = SubagentMap::new();
+        assert!(!map.has_active());
+
+        map.process_start("code-reviewer");
+        assert!(map.has_active());
+
+        map.process_stop("code-reviewer");
+        assert!(!map.has_active());
     }
 }

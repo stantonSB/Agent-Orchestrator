@@ -108,16 +108,19 @@ fn handle_request(
         }
     };
 
-    // Extract session_id from the JSON body (required for subagent routing).
-    let claude_session_id = json.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    // Extract agent_type if present (SubagentStart/SubagentStop events include this).
+    let agent_type = json.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // Extract the event type.
+    let hook_event_name = json.get("hook_event_name").and_then(|v| v.as_str());
     let notification_type = if let Some(t) = json.get("notification_type").and_then(|v| v.as_str()) {
         t.to_string()
-    } else if json.get("hook_event_name").and_then(|v| v.as_str()) == Some("Stop") {
+    } else if hook_event_name == Some("Stop") {
         "stop".to_string()
-    } else if json.get("hook_event_name").and_then(|v| v.as_str()) == Some("SubagentStop") {
+    } else if hook_event_name == Some("SubagentStop") {
         "subagent_stop".to_string()
+    } else if hook_event_name == Some("SubagentStart") {
+        "subagent_start".to_string()
     } else {
         let _ = request.respond(tiny_http::Response::empty(400));
         return;
@@ -129,43 +132,25 @@ fn handle_request(
         match map.get_mut(&ao_session_id) {
             Some(tracker) => {
                 let mut subagent_changed = false;
+                let is_subagent_event = notification_type == "subagent_start"
+                    || notification_type == "subagent_stop";
 
-                if let Some(ref cc_id) = claude_session_id {
+                // Handle subagent lifecycle events
+                if is_subagent_event {
+                    let type_name = agent_type.as_deref().unwrap_or("unknown");
                     let submap = tracker.subagent_map_mut();
-                    if submap.parent_unknown() {
-                        // First event establishes parent, may replay buffered
-                        subagent_changed = submap.process_event(cc_id, &notification_type);
-                    } else if submap.is_parent(cc_id) {
-                        // Parent event — SubagentStop fires on parent context
-                        // No special handling needed here
-                    } else {
-                        // Subagent event
-                        subagent_changed = submap.process_event(cc_id, &notification_type);
-                    }
+                    subagent_changed = match notification_type.as_str() {
+                        "subagent_start" => submap.process_start(type_name),
+                        "subagent_stop" => submap.process_stop(type_name),
+                        _ => false,
+                    };
                 }
 
-                // Only process parent status transitions for parent events (or when no session_id)
-                let is_parent_event = claude_session_id.as_ref()
-                    .map(|id| tracker.subagent_map().is_parent(id) || tracker.subagent_map().parent_unknown())
-                    .unwrap_or(true);
-
-                let transition = if is_parent_event && notification_type != "subagent_stop" {
-                    let base_transition = tracker.notify_hook_event(&notification_type);
-
-                    // Bubble: if any subagent needs attention and parent is working/idle,
-                    // emit needs_attention for the parent
-                    if subagent_changed && tracker.subagent_map().any_needs_attention() {
-                        match tracker.status() {
-                            crate::status_parser::SessionStatus::Working | crate::status_parser::SessionStatus::Idle => {
-                                Some(crate::status_parser::SessionStatus::NeedsAttention)
-                            }
-                            _ => base_transition,
-                        }
-                    } else {
-                        base_transition
-                    }
+                // Process parent status transitions for non-subagent events
+                let transition = if !is_subagent_event {
+                    tracker.notify_hook_event(&notification_type)
                 } else {
-                    // Subagent or SubagentStop event — check if bubbling needed
+                    // Subagent event — check if bubbling needed
                     if subagent_changed && tracker.subagent_map().any_needs_attention() {
                         match tracker.status() {
                             crate::status_parser::SessionStatus::Working | crate::status_parser::SessionStatus::Idle => {
@@ -442,18 +427,14 @@ mod tests {
     }
 
     #[test]
-    fn test_subagent_detected_from_different_session_id() {
+    fn test_subagent_start_registers_subagent() {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
         let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
 
-        // First event establishes parent
-        let body = r#"{"session_id":"cc-parent","notification_type":"idle_prompt"}"#;
-        post(port, "/status/ao-sess", body);
-
-        // Second event from different session_id is a subagent
-        let body = r#"{"session_id":"cc-child","notification_type":"idle_prompt"}"#;
+        // SubagentStart event with agent_type
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
         let line = post(port, "/status/ao-sess", body);
         assert_eq!(status_code(&line), 200);
 
@@ -461,6 +442,50 @@ mod tests {
         let map = trackers.lock().unwrap();
         let tracker = map.get("ao-sess").unwrap();
         assert_eq!(tracker.subagent_map().subagents().len(), 1);
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_subagent_stop_marks_finished() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+
+        // Start then stop
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
+        post(port, "/status/ao-sess", body);
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStop","agent_type":"code-reviewer"}"#;
+        let line = post(port, "/status/ao-sess", body);
+        assert_eq!(status_code(&line), 200);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let subagents = tracker.subagent_map().subagents();
+        assert_eq!(subagents.len(), 1);
+        assert_eq!(subagents[0].status, crate::status_parser::SessionStatus::Finished);
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_multiple_subagents_tracked() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+
+        // Start 3 subagents (all share parent's session_id, as Claude Code does)
+        for _ in 0..3 {
+            let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
+            post(port, "/status/ao-sess", body);
+        }
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        assert_eq!(tracker.subagent_map().subagents().len(), 3);
 
         server.stop();
     }
