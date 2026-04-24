@@ -11,6 +11,7 @@ function makeSession(overrides?: Partial<SessionInfo>): SessionInfo {
     createdAt: Date.now(),
     cwd: "/projects/app",
     sessionType: "claude",
+    isGitRepo: true,
     ...overrides,
   };
 }
@@ -147,6 +148,37 @@ describe("SessionCard rename", () => {
     fireEvent.click(renameItem);
 
     expect(screen.getByDisplayValue("My Session")).toBeTruthy();
+  });
+});
+
+describe("SessionCard worktree icon", () => {
+  it("shows tree icon for Claude sessions with isGitRepo true", () => {
+    const session = makeSession({ isGitRepo: true });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    const icon = screen.getByTitle("Running in a git worktree");
+    expect(icon).toBeTruthy();
+    expect(icon.textContent).toContain("🌳");
+  });
+
+  it("shows folder icon for Claude sessions with isGitRepo false", () => {
+    const session = makeSession({ isGitRepo: false });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    const icon = screen.getByTitle("No worktree — not a git repository");
+    expect(icon).toBeTruthy();
+    expect(icon.textContent).toContain("📁");
+  });
+
+  it("does not show worktree icon for terminal sessions", () => {
+    const session = makeSession({ sessionType: "terminal", status: "terminal", isGitRepo: false });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    expect(screen.queryByTitle("Running in a git worktree")).toBeNull();
+    expect(screen.queryByTitle("No worktree — not a git repository")).toBeNull();
   });
 });
 

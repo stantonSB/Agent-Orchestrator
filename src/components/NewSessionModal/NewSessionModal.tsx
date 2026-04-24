@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import styles from "./NewSessionModal.module.css";
 
 interface NewSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean, initWithClaude: boolean) => void;
+  onCreate: (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean, initWithClaude: boolean, isGitRepo: boolean) => void;
   lastUsedDirectory: string | null;
 }
 
@@ -20,6 +21,7 @@ export function NewSessionModal({
   const [skipPermissions, setSkipPermissions] = useState(true);
   const [pullLatest, setPullLatest] = useState(false);
   const [initWithClaude, setInitWithClaude] = useState(true);
+  const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -29,9 +31,20 @@ export function NewSessionModal({
       setSkipPermissions(true);
       setPullLatest(false);
       setInitWithClaude(true);
+      setIsGitRepo(null);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, lastUsedDirectory]);
+
+  useEffect(() => {
+    if (!directory) {
+      setIsGitRepo(null);
+      return;
+    }
+    invoke<boolean>("check_is_git_repo", { cwd: directory })
+      .then(setIsGitRepo)
+      .catch(() => setIsGitRepo(false));
+  }, [directory]);
 
   if (!isOpen) return null;
 
@@ -48,11 +61,12 @@ export function NewSessionModal({
   };
 
   const effectiveSkipPermissions = initWithClaude ? skipPermissions : false;
+  const effectivePullLatest = isGitRepo === false ? false : pullLatest;
 
   const handleCreate = () => {
     const trimmedName = name.trim();
     if (!trimmedName || !directory) return;
-    onCreate(trimmedName, directory, effectiveSkipPermissions, pullLatest, initWithClaude);
+    onCreate(trimmedName, directory, effectiveSkipPermissions, effectivePullLatest, initWithClaude, isGitRepo ?? true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -122,11 +136,12 @@ export function NewSessionModal({
           </span>
         </label>
 
-        <label className={styles.checkboxRow}>
+        <label className={`${styles.checkboxRow} ${isGitRepo === false ? styles.checkboxDisabled : ""}`}>
           <input
             type="checkbox"
-            checked={pullLatest}
+            checked={effectivePullLatest}
             onChange={(e) => setPullLatest(e.target.checked)}
+            disabled={isGitRepo === false}
             className={styles.checkbox}
           />
           <span className={styles.checkboxLabel}>Pull latest from main</span>

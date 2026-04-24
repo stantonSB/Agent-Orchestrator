@@ -137,7 +137,15 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss, on
               </span>
             )}
             {session.sessionType !== "terminal" && (
-              <DurationTimer createdAt={session.createdAt} active={isRunning(session.status)} />
+              <>
+                <span
+                  className={styles.worktreeIcon}
+                  title={session.isGitRepo ? "Running in a git worktree" : "No worktree — not a git repository"}
+                >
+                  {session.isGitRepo ? "🌳" : "📁"}
+                </span>
+                <DurationTimer createdAt={session.createdAt} active={isRunning(session.status)} />
+              </>
             )}
           </div>
           <span className={styles.status}>{STATUS_LABEL[session.status]}</span>

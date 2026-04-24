@@ -30,6 +30,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
 
       const { sessions } = useSessionStore.getState();
@@ -48,6 +49,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.removeSession("abc-123");
 
@@ -64,6 +66,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("abc-123");
       store.removeSession("abc-123");
@@ -81,6 +84,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -89,6 +93,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-1");
       store.removeSession("session-1");
@@ -108,6 +113,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.updateSessionStatus("abc-123", "working");
 
@@ -132,6 +138,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("abc-123");
 
@@ -222,6 +229,44 @@ describe("sessionStore", () => {
       expect(invoke).not.toHaveBeenCalledWith("create_session", expect.anything());
       expect(useSessionStore.getState().sessions.size).toBe(0);
     });
+
+    it("omits --worktree when isGitRepo is false", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("non-git-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Non-Git Session", "/path/to/non-git", true, false, true, false);
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Non-Git Session",
+        cwd: "/path/to/non-git",
+        command: "claude",
+        args: ["--dangerously-skip-permissions"],
+        sessionType: "claude",
+      });
+
+      const session = useSessionStore.getState().sessions.get("non-git-id");
+      expect(session?.isGitRepo).toBe(false);
+    });
+
+    it("includes --worktree when isGitRepo is true", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("git-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Git Session", "/path/to/git-repo", true, false, true, true);
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Git Session",
+        cwd: "/path/to/git-repo",
+        command: "claude",
+        args: ["--dangerously-skip-permissions", "--worktree"],
+        sessionType: "claude",
+      });
+
+      const session = useSessionStore.getState().sessions.get("git-id");
+      expect(session?.isGitRepo).toBe(true);
+    });
   });
 
   describe("closeSession", () => {
@@ -237,6 +282,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
 
       await store.closeSession("abc-123");
@@ -305,6 +351,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.updateSubagents("session-1", [
         { id: "cc-child-1", index: 1, status: "working", name: null, created_at: 1000 },
@@ -324,6 +371,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.updateSubagents("session-1", [
         { id: "cc-child-1", index: 1, status: "finished", name: null, created_at: 1000 },
@@ -364,6 +412,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
@@ -388,6 +437,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -396,6 +446,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/other",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [
@@ -417,6 +468,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -425,6 +477,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/other",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
@@ -447,6 +500,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -455,6 +509,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/other",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [

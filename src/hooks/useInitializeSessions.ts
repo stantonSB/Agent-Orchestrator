@@ -26,6 +26,7 @@ export function useInitializeSessions() {
             createdAt: raw.created_at_epoch_ms,
             status: sessionType === "terminal" ? "terminal" : "idle",
             sessionType,
+            isGitRepo: true,
           };
           addSession(session);
           setupEventListeners(session.id);

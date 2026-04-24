@@ -14,6 +14,7 @@ export interface SessionInfo {
   createdAt: number; // unix timestamp ms
   cwd: string; // working directory path
   sessionType: "claude" | "terminal";
+  isGitRepo: boolean;
 }
 
 export interface SubagentStatus {
