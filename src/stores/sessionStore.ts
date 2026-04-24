@@ -108,10 +108,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         eventCleanups.delete(id);
       }
 
+      let activeSessionId = state.activeSessionId;
+      if (activeSessionId === id) {
+        const remaining = Array.from(next.keys());
+        activeSessionId = remaining.length > 0 ? remaining[0] : null;
+      }
+
       return {
         sessions: next,
         subagents: nextSubagents,
-        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+        activeSessionId,
       };
     });
   },

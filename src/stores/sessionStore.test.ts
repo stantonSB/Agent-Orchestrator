@@ -53,7 +53,7 @@ describe("sessionStore", () => {
       expect(sessions.size).toBe(0);
     });
 
-    it("clears activeSessionId if the removed session was active", () => {
+    it("clears activeSessionId if the removed session was the only one", () => {
       const store = useSessionStore.getState();
       store.addSession({
         id: "abc-123",
@@ -67,6 +67,29 @@ describe("sessionStore", () => {
 
       const { activeSessionId } = useSessionStore.getState();
       expect(activeSessionId).toBeNull();
+    });
+
+    it("auto-selects next session when active session is removed", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "session-1",
+        name: "First",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/test/path",
+      });
+      store.addSession({
+        id: "session-2",
+        name: "Second",
+        status: "idle",
+        createdAt: Date.now(),
+        cwd: "/test/path",
+      });
+      store.setActiveSession("session-1");
+      store.removeSession("session-1");
+
+      const { activeSessionId } = useSessionStore.getState();
+      expect(activeSessionId).toBe("session-2");
     });
   });
 
