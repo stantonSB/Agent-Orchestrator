@@ -5,7 +5,7 @@ import styles from "./NewSessionModal.module.css";
 interface NewSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean) => void;
+  onCreate: (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean, initWithClaude: boolean) => void;
   lastUsedDirectory: string | null;
 }
 
@@ -19,6 +19,7 @@ export function NewSessionModal({
   const [directory, setDirectory] = useState<string | null>(null);
   const [skipPermissions, setSkipPermissions] = useState(true);
   const [pullLatest, setPullLatest] = useState(false);
+  const [initWithClaude, setInitWithClaude] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export function NewSessionModal({
       setDirectory(lastUsedDirectory);
       setSkipPermissions(true);
       setPullLatest(false);
+      setInitWithClaude(true);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, lastUsedDirectory]);
@@ -45,10 +47,12 @@ export function NewSessionModal({
     }
   };
 
+  const effectiveSkipPermissions = initWithClaude ? skipPermissions : false;
+
   const handleCreate = () => {
     const trimmedName = name.trim();
     if (!trimmedName || !directory) return;
-    onCreate(trimmedName, directory, skipPermissions, pullLatest);
+    onCreate(trimmedName, directory, effectiveSkipPermissions, pullLatest, initWithClaude);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -109,6 +113,18 @@ export function NewSessionModal({
         <label className={styles.checkboxRow}>
           <input
             type="checkbox"
+            checked={initWithClaude}
+            onChange={(e) => setInitWithClaude(e.target.checked)}
+            className={styles.checkbox}
+          />
+          <span className={`${styles.checkboxLabel} ${styles.checkboxLabelPrimary}`}>
+            Initialise with Claude
+          </span>
+        </label>
+
+        <label className={styles.checkboxRow}>
+          <input
+            type="checkbox"
             checked={pullLatest}
             onChange={(e) => setPullLatest(e.target.checked)}
             className={styles.checkbox}
@@ -116,11 +132,12 @@ export function NewSessionModal({
           <span className={styles.checkboxLabel}>Pull latest from main</span>
         </label>
 
-        <label className={styles.checkboxRow}>
+        <label className={`${styles.checkboxRow} ${!initWithClaude ? styles.checkboxDisabled : ""}`}>
           <input
             type="checkbox"
-            checked={skipPermissions}
+            checked={effectiveSkipPermissions}
             onChange={(e) => setSkipPermissions(e.target.checked)}
+            disabled={!initWithClaude}
             className={styles.checkbox}
           />
           <span className={styles.checkboxLabel}>Skip permissions</span>
