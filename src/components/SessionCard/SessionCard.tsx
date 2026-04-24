@@ -23,6 +23,7 @@ const STATUS_DOT_CLASS: Record<SessionStatus, string> = {
   needs_attention: styles.statusNeedsAttention,
   finished: styles.statusFinished,
   error: styles.statusError,
+  terminal: styles.statusTerminal,
 };
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
@@ -32,6 +33,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   needs_attention: "Needs Attention",
   finished: "Finished",
   error: "Error",
+  terminal: "Terminal",
 };
 
 function isRunning(status: SessionStatus): boolean {
@@ -134,7 +136,9 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss, on
                 {session.name}
               </span>
             )}
-            <DurationTimer createdAt={session.createdAt} active={isRunning(session.status)} />
+            {session.sessionType !== "terminal" && (
+              <DurationTimer createdAt={session.createdAt} active={isRunning(session.status)} />
+            )}
           </div>
           <span className={styles.status}>{STATUS_LABEL[session.status]}</span>
         </div>
