@@ -30,6 +30,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
 
       const { sessions } = useSessionStore.getState();
@@ -48,6 +49,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.removeSession("abc-123");
 
@@ -64,6 +66,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("abc-123");
       store.removeSession("abc-123");
@@ -81,6 +84,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -89,6 +93,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-1");
       store.removeSession("session-1");
@@ -108,6 +113,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.updateSessionStatus("abc-123", "working");
 
@@ -132,6 +138,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("abc-123");
 
@@ -237,6 +244,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test/path",
         sessionType: "claude",
+        isGitRepo: true,
       });
 
       await store.closeSession("abc-123");
@@ -305,6 +313,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.updateSubagents("session-1", [
         { id: "cc-child-1", index: 1, status: "working", name: null, created_at: 1000 },
@@ -324,6 +333,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.updateSubagents("session-1", [
         { id: "cc-child-1", index: 1, status: "finished", name: null, created_at: 1000 },
@@ -364,6 +374,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
@@ -388,6 +399,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -396,6 +408,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/other",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [
@@ -417,6 +430,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -425,6 +439,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/other",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
@@ -447,6 +462,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/test",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.addSession({
         id: "session-2",
@@ -455,6 +471,7 @@ describe("sessionStore", () => {
         createdAt: Date.now(),
         cwd: "/other",
         sessionType: "claude",
+        isGitRepo: true,
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [

@@ -207,6 +207,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         createdAt: Date.now(),
         cwd,
         sessionType: "claude",
+        isGitRepo: true,
       };
     } else {
       id = await invoke<string>("create_session", {
@@ -221,6 +222,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         createdAt: Date.now(),
         cwd,
         sessionType: "terminal",
+        isGitRepo: false,
       };
     }
 

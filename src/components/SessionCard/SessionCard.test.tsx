@@ -11,6 +11,7 @@ function makeSession(overrides?: Partial<SessionInfo>): SessionInfo {
     createdAt: Date.now(),
     cwd: "/projects/app",
     sessionType: "claude",
+    isGitRepo: true,
     ...overrides,
   };
 }
