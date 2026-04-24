@@ -1,7 +1,6 @@
 .titleBar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   height: var(--titlebar-height);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -16,6 +15,7 @@
   color: var(--text-secondary);
   letter-spacing: 0.3px;
   flex: 1;
+  text-align: center;
 }
 
 .windowControls {
@@ -24,26 +24,36 @@
   align-items: center;
 }
 
-.controlButton {
-  width: 28px;
-  height: 28px;
+.trafficLight {
+  width: 12px;
+  height: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
   border: none;
-  border-radius: 4px;
-  color: var(--text-muted);
+  border-radius: 50%;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  padding: 0;
+  color: transparent;
+  transition: opacity 0.15s;
 }
 
-.controlButton:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
+.trafficLight:hover {
+  color: rgba(0, 0, 0, 0.5);
 }
 
-.close:hover {
-  background: rgba(239, 83, 80, 0.3);
-  color: var(--status-error);
+.close {
+  background: #ff5f57;
+}
+
+.minimize {
+  background: #febc2e;
+}
+
+.maximize {
+  background: #28c840;
+}
+
+.windowControls:hover .trafficLight {
+  color: rgba(0, 0, 0, 0.5);
 }
