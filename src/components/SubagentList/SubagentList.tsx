@@ -13,6 +13,7 @@ const DOT_CLASS: Record<SessionStatus, string> = {
   needs_attention: styles.statusNeedsAttention,
   finished: styles.statusFinished,
   error: styles.statusError,
+  terminal: styles.statusIdle,
 };
 
 function isRunning(status: SessionStatus): boolean {
