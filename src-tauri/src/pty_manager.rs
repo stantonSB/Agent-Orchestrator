@@ -635,6 +635,7 @@ mod tests {
             vec!["hello".into()],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -668,6 +669,7 @@ mod tests {
             vec!["hello world".into()],
             80,
             24,
+            SessionType::Claude,
         );
         let _id = match resp {
             PtyResponse::Created { id } => id,
@@ -695,6 +697,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -721,6 +724,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -757,6 +761,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -780,6 +785,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -811,6 +817,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -876,6 +883,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -904,6 +912,7 @@ mod tests {
                 vec![],
                 80,
                 24,
+                SessionType::Claude,
             );
             match resp {
                 PtyResponse::Created { id } => ids.push(id),
@@ -933,5 +942,70 @@ mod tests {
                 *log
             );
         }
+    }
+
+    #[test]
+    fn test_terminal_session_no_tracker() {
+        let status_trackers = Arc::new(Mutex::new(HashMap::new()));
+        let status_trackers_clone = status_trackers.clone();
+
+        let handle = start(
+            Box::new(|_id, _data| {}),
+            Box::new(|_id, _code| {}),
+            Box::new(|_id, _status| {}),
+            status_trackers_clone,
+            0,
+        );
+
+        let resp = handle.create(
+            "terminal-test".into(),
+            std::env::temp_dir(),
+            "echo".into(),
+            vec!["hello".into()],
+            80,
+            24,
+            SessionType::Terminal,
+        );
+        let id = match resp {
+            PtyResponse::Created { id } => id,
+            other => panic!("Expected Created, got: {:?}", other),
+        };
+
+        let trackers = status_trackers.lock().unwrap();
+        assert!(
+            !trackers.contains_key(&id),
+            "Terminal session should not have a status tracker"
+        );
+
+        drop(trackers);
+        handle.shutdown();
+    }
+
+    #[test]
+    fn test_terminal_session_list_type() {
+        let (handle, _output, _exit) = test_manager();
+        let resp = handle.create(
+            "terminal-list".into(),
+            std::env::temp_dir(),
+            "cat".into(),
+            vec![],
+            80,
+            24,
+            SessionType::Terminal,
+        );
+        let id = match resp {
+            PtyResponse::Created { id } => id,
+            other => panic!("Expected Created, got: {:?}", other),
+        };
+
+        let resp = handle.list();
+        match resp {
+            PtyResponse::Sessions(entries) => {
+                let entry = entries.iter().find(|e| e.id == id).unwrap();
+                assert_eq!(entry.session_type, "terminal");
+            }
+            other => panic!("Expected Sessions, got: {:?}", other),
+        }
+        handle.shutdown();
     }
 }

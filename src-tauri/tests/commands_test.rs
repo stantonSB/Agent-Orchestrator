@@ -48,6 +48,7 @@ fn test_create_and_list_roundtrip() {
         vec!["hello".into()],
         80,
         24,
+        tauri_app_lib::pty_manager::SessionType::Claude,
     ) {
         PtyResponse::Created { id } => id,
         other => panic!("Expected Created, got: {:?}", other),
