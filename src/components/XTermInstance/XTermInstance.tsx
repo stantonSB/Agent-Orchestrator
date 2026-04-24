@@ -48,15 +48,24 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
     useImperativeHandle(ref, () => ({ write, fit }), [write, fit]);
 
     // Re-fit whenever this instance becomes active (the container may have
-    // changed size while it was display:none).
+    // changed size while it was display:none).  Use double-rAF to ensure
+    // the browser has fully laid out the now-visible container, plus a
+    // delayed retry as a safety net.
     const prevActive = useRef(isActive);
     useEffect(() => {
       if (isActive && !prevActive.current) {
-        // Small delay so the browser can lay out the now-visible container
         requestAnimationFrame(() => {
-          fit();
-          getTerminal()?.focus();
+          requestAnimationFrame(() => {
+            fit();
+            getTerminal()?.focus();
+          });
         });
+        // Safety-net retry: if the double-rAF fit ran during a transient
+        // state and was skipped by the dimension guard, this catches it.
+        const retryTimer = setTimeout(() => {
+          fit();
+        }, 100);
+        return () => clearTimeout(retryTimer);
       }
       prevActive.current = isActive;
     }, [isActive, fit, getTerminal]);

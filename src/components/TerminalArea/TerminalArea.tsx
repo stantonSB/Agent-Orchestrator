@@ -156,9 +156,16 @@ export function TerminalArea({
   );
 
   // Forward terminal resize to PTY via IPC.
+  // Guard against bogus dimensions — once a small size reaches the PTY,
+  // the child process (Claude Code) reformats all output for that width,
+  // permanently breaking the session.
   const handleSessionResize = useCallback(
     (sessionId: string, cols: number, rows: number) => {
       if (mockMode) return;
+      if (cols < 20 || rows < 5) {
+        console.warn(`Ignoring suspicious resize for ${sessionId}: ${cols}x${rows}`);
+        return;
+      }
       resizeSession({ id: sessionId, cols, rows }).catch((err) => {
         console.error(`Failed to resize session ${sessionId}:`, err);
       });

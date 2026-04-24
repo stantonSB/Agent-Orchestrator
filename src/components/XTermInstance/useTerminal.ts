@@ -110,17 +110,30 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     // Mount
     term.open(container);
 
-    // Initial fit (defer one frame so the container has layout dimensions)
-    requestAnimationFrame(() => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // Container may not have dimensions yet — safe to ignore
-      }
-      if (container.offsetParent !== null) {
-        term.focus();
-      }
-    });
+    // Initial fit — use double-rAF to ensure the browser has completed
+    // layout after xterm inserts its DOM elements.  A single rAF can fire
+    // before the renderer has measured cell dimensions, producing a
+    // bogus column count that permanently breaks the PTY size.
+    const scheduleInitialFit = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (container.offsetParent === null || container.clientWidth < 50) {
+            // Container not yet visible — retry shortly
+            setTimeout(scheduleInitialFit, 50);
+            return;
+          }
+          try {
+            fitAddon.fit();
+          } catch {
+            // Container may not have dimensions yet — safe to ignore
+          }
+          if (container.offsetParent !== null) {
+            term.focus();
+          }
+        });
+      });
+    };
+    scheduleInitialFit();
 
     // Forward user input
     const dataDisposable = term.onData((data) => {
@@ -132,8 +145,14 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
       onResizeRef.current?.(cols, rows);
     });
 
-    // ResizeObserver for auto-fit
-    const observer = new ResizeObserver(() => {
+    // ResizeObserver for auto-fit — skip entries with tiny dimensions
+    // to avoid fitting during transient layout states (e.g. display:none
+    // transitions) which can produce bogus column counts.
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry || entry.contentRect.width < 50 || entry.contentRect.height < 50) {
+        return;
+      }
       requestAnimationFrame(() => {
         try {
           fitAddon.fit();
@@ -220,6 +239,11 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   }, []);
 
   const fit = useCallback(() => {
+    const container = containerRef.current;
+    // Don't fit if container is hidden (display:none) or detached from DOM
+    if (!container || container.offsetParent === null) return;
+    // Don't fit if container has near-zero dimensions (transient layout state)
+    if (container.clientWidth < 50 || container.clientHeight < 50) return;
     try {
       fitAddonRef.current?.fit();
     } catch {
