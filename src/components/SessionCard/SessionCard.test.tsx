@@ -10,6 +10,7 @@ function makeSession(overrides?: Partial<SessionInfo>): SessionInfo {
     status: "idle",
     createdAt: Date.now(),
     cwd: "/projects/app",
+    sessionType: "claude",
     ...overrides,
   };
 }
@@ -146,5 +147,45 @@ describe("SessionCard rename", () => {
     fireEvent.click(renameItem);
 
     expect(screen.getByDisplayValue("My Session")).toBeTruthy();
+  });
+});
+
+describe("SessionCard terminal sessions", () => {
+  it("renders a status dot (not checkmark) for terminal status", () => {
+    const session = makeSession({ status: "terminal", sessionType: "terminal" });
+    const { container } = render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    expect(screen.queryByText("✓")).toBeNull();
+    expect(container.querySelector('[class*="statusDot"]')).toBeTruthy();
+  });
+
+  it("shows 'Terminal' as status label", () => {
+    const session = makeSession({ status: "terminal", sessionType: "terminal" });
+    render(
+      <SessionCard session={session} isActive={false} onClick={vi.fn()} />
+    );
+    expect(screen.getByText("Terminal")).toBeTruthy();
+  });
+
+  it("treats terminal sessions as running (closeable, not dismissable)", () => {
+    const onClose = vi.fn();
+    const onDismiss = vi.fn();
+    const session = makeSession({ status: "terminal", sessionType: "terminal" });
+    render(
+      <SessionCard
+        session={session}
+        isActive={false}
+        onClick={vi.fn()}
+        onClose={onClose}
+        onDismiss={onDismiss}
+      />
+    );
+
+    const card = screen.getByText("My Session").closest("[role='button']")!;
+    fireEvent.contextMenu(card);
+
+    expect(screen.getByText("Close Session")).toBeTruthy();
+    expect(screen.queryByText("Dismiss")).toBeNull();
   });
 });

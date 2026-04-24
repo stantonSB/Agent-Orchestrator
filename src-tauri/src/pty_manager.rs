@@ -52,6 +52,22 @@ fn shell_env() -> &'static HashMap<String, String> {
 // Public types
 // ---------------------------------------------------------------------------
 
+/// Whether this session runs Claude Code or a plain shell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionType {
+    Claude,
+    Terminal,
+}
+
+impl SessionType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SessionType::Claude => "claude",
+            SessionType::Terminal => "terminal",
+        }
+    }
+}
+
 /// Unique identifier for a PTY session.
 pub type SessionId = String;
 
@@ -62,6 +78,7 @@ pub enum PtyRequest {
         cwd: PathBuf,
         command: String,
         args: Vec<String>,
+        session_type: SessionType,
         cols: u16,
         rows: u16,
         reply: mpsc::Sender<PtyResponse>,
@@ -111,6 +128,7 @@ pub struct SessionListEntry {
     pub name: String,
     pub cwd: PathBuf,
     pub created_at_epoch_ms: u128,
+    pub session_type: String,
 }
 
 pub type OutputCallback = Box<dyn Fn(SessionId, Vec<u8>) + Send + Sync + 'static>;
@@ -127,6 +145,7 @@ struct Session {
     name: String,
     #[allow(dead_code)]
     cwd: PathBuf,
+    session_type: SessionType,
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn std::io::Write + Send>,
     #[allow(dead_code)]
@@ -164,12 +183,14 @@ impl PtyManagerHandle {
         args: Vec<String>,
         cols: u16,
         rows: u16,
+        session_type: SessionType,
     ) -> PtyResponse {
         self.request(|reply| PtyRequest::Create {
             name,
             cwd,
             command,
             args,
+            session_type,
             cols,
             rows,
             reply,
@@ -252,6 +273,7 @@ fn manager_loop(
                     cwd,
                     command,
                     args,
+                    session_type,
                     cols,
                     rows,
                     reply,
@@ -296,8 +318,10 @@ fn manager_loop(
 
                     // Pass session identity and status server port so that
                     // Claude Code hook scripts can report status back to us.
-                    cmd.env("AO_SESSION_ID", &id);
-                    cmd.env("AO_STATUS_PORT", status_port.to_string());
+                    if session_type == SessionType::Claude {
+                        cmd.env("AO_SESSION_ID", &id);
+                        cmd.env("AO_STATUS_PORT", status_port.to_string());
+                    }
 
                     let child = match pair.slave.spawn_command(cmd) {
                         Ok(child) => child,
@@ -328,8 +352,8 @@ fn manager_loop(
                         }
                     };
 
-                    // Insert a new status tracker for this session.
-                    {
+                    // Insert a new status tracker for this session (Claude only).
+                    if session_type == SessionType::Claude {
                         let mut trackers = status_trackers.lock().unwrap();
                         trackers.insert(id.clone(), StatusTracker::new());
                     }
@@ -389,7 +413,7 @@ fn manager_loop(
                     // does not fire `idle_prompt` on initial startup, so
                     // without this the status would stay "Starting" until
                     // the user presses Enter.
-                    {
+                    if session_type == SessionType::Claude {
                         let timer_id = id.clone();
                         let timer_trackers = status_trackers.clone();
                         let timer_status_cb = on_status.clone();
@@ -430,6 +454,7 @@ fn manager_loop(
                             id: id.clone(),
                             name,
                             cwd,
+                            session_type,
                             master: pair.master,
                             writer,
                             created_at: Instant::now(),
@@ -534,6 +559,7 @@ fn manager_loop(
                             name: s.name.clone(),
                             cwd: s.cwd.clone(),
                             created_at_epoch_ms: s.created_at_epoch_ms,
+                            session_type: s.session_type.as_str().to_string(),
                         })
                         .collect();
                     let _ = reply.send(PtyResponse::Sessions(entries));
@@ -609,6 +635,7 @@ mod tests {
             vec!["hello".into()],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -642,6 +669,7 @@ mod tests {
             vec!["hello world".into()],
             80,
             24,
+            SessionType::Claude,
         );
         let _id = match resp {
             PtyResponse::Created { id } => id,
@@ -669,6 +697,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -695,6 +724,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -731,6 +761,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -754,6 +785,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -785,6 +817,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -850,6 +883,7 @@ mod tests {
             vec![],
             80,
             24,
+            SessionType::Claude,
         );
         let id = match resp {
             PtyResponse::Created { id } => id,
@@ -878,6 +912,7 @@ mod tests {
                 vec![],
                 80,
                 24,
+                SessionType::Claude,
             );
             match resp {
                 PtyResponse::Created { id } => ids.push(id),
@@ -907,5 +942,70 @@ mod tests {
                 *log
             );
         }
+    }
+
+    #[test]
+    fn test_terminal_session_no_tracker() {
+        let status_trackers = Arc::new(Mutex::new(HashMap::new()));
+        let status_trackers_clone = status_trackers.clone();
+
+        let handle = start(
+            Box::new(|_id, _data| {}),
+            Box::new(|_id, _code| {}),
+            Box::new(|_id, _status| {}),
+            status_trackers_clone,
+            0,
+        );
+
+        let resp = handle.create(
+            "terminal-test".into(),
+            std::env::temp_dir(),
+            "echo".into(),
+            vec!["hello".into()],
+            80,
+            24,
+            SessionType::Terminal,
+        );
+        let id = match resp {
+            PtyResponse::Created { id } => id,
+            other => panic!("Expected Created, got: {:?}", other),
+        };
+
+        let trackers = status_trackers.lock().unwrap();
+        assert!(
+            !trackers.contains_key(&id),
+            "Terminal session should not have a status tracker"
+        );
+
+        drop(trackers);
+        handle.shutdown();
+    }
+
+    #[test]
+    fn test_terminal_session_list_type() {
+        let (handle, _output, _exit) = test_manager();
+        let resp = handle.create(
+            "terminal-list".into(),
+            std::env::temp_dir(),
+            "cat".into(),
+            vec![],
+            80,
+            24,
+            SessionType::Terminal,
+        );
+        let id = match resp {
+            PtyResponse::Created { id } => id,
+            other => panic!("Expected Created, got: {:?}", other),
+        };
+
+        let resp = handle.list();
+        match resp {
+            PtyResponse::Sessions(entries) => {
+                let entry = entries.iter().find(|e| e.id == id).unwrap();
+                assert_eq!(entry.session_type, "terminal");
+            }
+            other => panic!("Expected Sessions, got: {:?}", other),
+        }
+        handle.shutdown();
     }
 }

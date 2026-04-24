@@ -124,6 +124,16 @@
   color: #9ca3af;
 }
 
+.checkboxLabelPrimary {
+  color: #e5e7eb;
+  font-weight: 500;
+}
+
+.checkboxDisabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;

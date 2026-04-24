@@ -4,7 +4,8 @@ export type SessionStatus =
   | "idle"
   | "needs_attention"
   | "finished"
-  | "error";
+  | "error"
+  | "terminal";
 
 export interface SessionInfo {
   id: string;
@@ -12,6 +13,7 @@ export interface SessionInfo {
   status: SessionStatus;
   createdAt: number; // unix timestamp ms
   cwd: string; // working directory path
+  sessionType: "claude" | "terminal";
 }
 
 export interface SubagentStatus {
