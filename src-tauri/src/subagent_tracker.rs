@@ -1,5 +1,5 @@
 use crate::status_parser::SessionStatus;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Metadata for a single detected subagent.
 #[derive(Debug, Clone)]
@@ -8,6 +8,7 @@ pub struct SubagentInfo {
     pub index: u16,
     pub status: SessionStatus,
     pub agent_type: String,
+    pub created_at: u64,
     pub finished_at: Option<Instant>,
 }
 
@@ -18,6 +19,7 @@ pub struct SubagentStatusPayload {
     pub index: u16,
     pub status: SessionStatus,
     pub name: Option<String>,
+    pub created_at: u64,
 }
 
 impl From<&SubagentInfo> for SubagentStatusPayload {
@@ -27,6 +29,7 @@ impl From<&SubagentInfo> for SubagentStatusPayload {
             index: info.index,
             status: info.status.clone(),
             name: Some(info.agent_type.clone()),
+            created_at: info.created_at,
         }
     }
 }
@@ -72,11 +75,16 @@ impl SubagentMap {
         let index = self.next_index;
         self.next_index += 1;
         let id = format!("subagent-{}", index);
+        let created_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
         self.agents.push(SubagentInfo {
             id,
             index,
             status: SessionStatus::Working,
             agent_type: agent_type.to_string(),
+            created_at,
             finished_at: None,
         });
         true

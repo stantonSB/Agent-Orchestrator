@@ -259,8 +259,8 @@ describe("sessionStore", () => {
     it("updates subagents for a session", () => {
       const store = useSessionStore.getState();
       store.updateSubagents("session-1", [
-        { id: "cc-child-1", index: 1, status: "working", name: null },
-        { id: "cc-child-2", index: 2, status: "idle", name: "Exploring" },
+        { id: "cc-child-1", index: 1, status: "working", name: null, created_at: 1000 },
+        { id: "cc-child-2", index: 2, status: "idle", name: "Exploring", created_at: 2000 },
       ]);
 
       const { subagents } = useSessionStore.getState();
@@ -279,7 +279,7 @@ describe("sessionStore", () => {
         cwd: "/test",
       });
       store.updateSubagents("session-1", [
-        { id: "cc-child-1", index: 1, status: "working", name: null },
+        { id: "cc-child-1", index: 1, status: "working", name: null, created_at: 1000 },
       ]);
       store.removeSession("session-1");
 
@@ -297,7 +297,7 @@ describe("sessionStore", () => {
         cwd: "/test",
       });
       store.updateSubagents("session-1", [
-        { id: "cc-child-1", index: 1, status: "finished", name: null },
+        { id: "cc-child-1", index: 1, status: "finished", name: null, created_at: 1000 },
       ]);
       store.dismissSession("session-1");
 
@@ -337,8 +337,8 @@ describe("sessionStore", () => {
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
-        { id: "child-1", index: 1, status: "finished", name: null },
-        { id: "child-2", index: 2, status: "working", name: null },
+        { id: "child-1", index: 1, status: "finished", name: null, created_at: 1000 },
+        { id: "child-2", index: 2, status: "working", name: null, created_at: 2000 },
       ]);
 
       vi.advanceTimersByTime(30_000);
@@ -367,7 +367,7 @@ describe("sessionStore", () => {
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [
-        { id: "child-1", index: 1, status: "finished", name: null },
+        { id: "child-1", index: 1, status: "finished", name: null, created_at: 1000 },
       ]);
 
       vi.advanceTimersByTime(60_000);
@@ -394,7 +394,7 @@ describe("sessionStore", () => {
       });
       store.setActiveSession("session-1");
       store.updateSubagents("session-1", [
-        { id: "child-1", index: 1, status: "finished", name: null },
+        { id: "child-1", index: 1, status: "finished", name: null, created_at: 1000 },
       ]);
 
       store.setActiveSession("session-2");
@@ -422,7 +422,7 @@ describe("sessionStore", () => {
       });
       store.setActiveSession("session-2");
       store.updateSubagents("session-1", [
-        { id: "child-1", index: 1, status: "finished", name: null },
+        { id: "child-1", index: 1, status: "finished", name: null, created_at: 1000 },
       ]);
 
       store.setActiveSession("session-1");

@@ -1,4 +1,5 @@
 import type { SubagentStatus, SessionStatus } from "../../types/session";
+import { DurationTimer } from "../DurationTimer/DurationTimer";
 import styles from "./SubagentList.module.css";
 
 interface SubagentListProps {
@@ -14,6 +15,10 @@ const DOT_CLASS: Record<SessionStatus, string> = {
   error: styles.statusError,
 };
 
+function isRunning(status: SessionStatus): boolean {
+  return status !== "finished" && status !== "error";
+}
+
 export function SubagentList({ subagents }: SubagentListProps) {
   if (subagents.length === 0) return null;
 
@@ -28,6 +33,7 @@ export function SubagentList({ subagents }: SubagentListProps) {
           <span className={styles.name}>
             {agent.name ?? `Agent ${agent.index}`}
           </span>
+          <DurationTimer createdAt={agent.created_at} active={isRunning(agent.status)} />
         </div>
       ))}
     </div>
