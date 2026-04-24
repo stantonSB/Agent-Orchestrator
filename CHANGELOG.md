@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-04-24
+
+### Fixed
+
+- **Terminal resize stability** — Added defensive guards to prevent `fitAddon.fit()` from calculating bogus column/row dimensions during layout transitions, which could permanently break PTY output formatting.
+
 ## [0.3.0] - 2026-04-24
 
 ### Added
