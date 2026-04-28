@@ -22,6 +22,8 @@ export interface XTermInstanceHandle {
 
 interface XTermInstanceProps {
   sessionId: string;
+  /** Current working directory for the session. */
+  cwd: string;
   /** Called when the user types in this terminal. */
   onData?: (data: string) => void;
   /** Called when the terminal grid is resized. */
@@ -37,11 +39,12 @@ interface XTermInstanceProps {
 // ---------------------------------------------------------------------------
 
 export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>(
-  function XTermInstance({ sessionId: _sessionId, onData, onResize, mockMode, isActive }, ref) {
+  function XTermInstance({ sessionId: _sessionId, cwd, onData, onResize, mockMode, isActive }, ref) {
     const { containerRef, write, fit, getTerminal } = useTerminal({
       onData,
       onResize,
       mockMode,
+      cwd,
     });
 
     // Expose handle to parent
