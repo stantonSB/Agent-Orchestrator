@@ -92,15 +92,16 @@ Implements xterm's `ILinkProvider` interface with:
 
 The regex targets strings that start with `/`, `./`, `../`, or `word/` and contain typical path characters, ending with a file extension. This avoids matching plain words or bare directory names.
 
-**`provideLinks(bufferLineNumber)`:**
-1. Read the line text from the terminal buffer
+**`provideLinks(y, callback)`:** (callback-based API per xterm.js `ILinkProvider`)
+1. Read line `y` text from the terminal buffer
 2. Run the regex to find all path matches with their column ranges
-3. Return link objects with `activate` and `tooltip` callbacks
+3. Call `callback(links)` with link objects containing `range`, `activate`, and `tooltip`
 
-**`activate` (Cmd+click handler):**
-1. If path is relative, join with `cwd` to produce absolute path
-2. Call `openUrl(`file://${absolutePath}`)` from `@tauri-apps/plugin-opener`
-3. On error, call `addToast("Could not open file: <path>", "error")` from the session store
+**`activate(event)` (Cmd+click handler):**
+1. Check `event?.metaKey` — return early if not Cmd+click (avoids intercepting normal clicks/selection)
+2. If path is relative, join with `cwd` to produce absolute path
+3. Call `openUrl(`file://${absolutePath}`)` from `@tauri-apps/plugin-opener`
+4. On error, call `useSessionStore.getState().addToast("Could not open file: <path>", "error")` — uses Zustand's `getState()` since this is a plain class, not a React component
 
 **Hover tooltip:** `"Cmd+click to open in editor"`
 
@@ -118,6 +119,8 @@ term.registerLinkProvider(
 ```
 
 The provider receives the ref, not the value, so it always resolves against the current cwd.
+
+**Important:** `cwd` must NOT be added to the `useEffect` dependency array (`[mockMode]`). It is accessed only via `cwdRef` inside the link provider. Adding it to deps would destroy and recreate the terminal on every cwd change.
 
 ### Error Handling
 
@@ -137,10 +140,11 @@ The provider receives the ref, not the value, so it always resolves against the 
 | `src/components/XTermInstance/useTerminal.ts` | Add `cwd` option, register link provider |
 | `src/components/XTermInstance/XTermInstance.tsx` | Accept and forward `cwd` prop |
 | `src/components/TerminalArea/TerminalArea.tsx` | Add `cwd` to `TerminalSession`, pass through |
-| Parent component rendering `TerminalArea` | Map `SessionInfo.cwd` into `TerminalSession` |
+
+Note: `App.tsx` already passes `SessionInfo[]` (which contains `cwd`) to `TerminalArea`. TypeScript's structural typing means adding `cwd` to `TerminalSession` requires no changes in `App.tsx`.
 
 ## Testing
 
 - Unit test for `FilePathLinkProvider`: verify regex matches expected path patterns and ignores non-paths
 - Unit test for path resolution: relative + absolute paths, with and without line numbers
-- Manual test: run app, verify Cmd+click on file paths opens VS Code
+- Manual test: run app, verify Cmd+click on file paths opens the file in the system default application
