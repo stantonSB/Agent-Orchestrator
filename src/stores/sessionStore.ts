@@ -206,7 +206,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } else {
       const args: string[] = [];
       if (sessionMode === "claude-auto") {
-        args.push("--auto");
+        args.push("--permission-mode", "auto");
       } else if (sessionMode === "claude-skip") {
         args.push("--dangerously-skip-permissions");
       } else if (sessionMode === "claude-plan") {

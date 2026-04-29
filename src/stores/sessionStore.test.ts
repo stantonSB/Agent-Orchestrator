@@ -311,7 +311,7 @@ describe("sessionStore", () => {
         name: "Auto Session",
         cwd: "/path/to/project",
         command: "claude",
-        args: ["--auto", "--worktree"],
+        args: ["--permission-mode", "auto", "--worktree"],
         sessionType: "claude",
       });
     });
