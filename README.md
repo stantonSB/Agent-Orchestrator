@@ -1,111 +1,89 @@
 # Agent Orchestrator
 
-A macOS desktop app for running multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) terminal sessions in parallel. Monitor session status at a glance, switch between agents without losing scrollback, and manage everything from a single window.
+Run multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions in parallel. Monitor status. Switch instantly. One window.
 
-Built with Tauri 2, React 19, and TypeScript.
+![macOS](https://img.shields.io/badge/macOS-000000?style=flat&logo=apple&logoColor=white)
+![Tauri 2](https://img.shields.io/badge/Tauri_2-FFC131?style=flat&logo=tauri&logoColor=black)
+![v1.0.0](https://img.shields.io/github/v/release/stantonSB/Agent-Orchestrator?style=flat&label=version)
+
+---
+
+![Agent Orchestrator showing multiple sessions with different statuses](assets/hero.png)
+
+---
 
 ## Features
 
-- **Parallel sessions** — Run 5+ Claude Code agents simultaneously, each in its own PTY with full terminal emulation (xterm.js, 256-color, 10k-line scrollback)
-- **Real-time status** — Hook-driven detection shows Working / Idle / Needs Attention / Finished for each session (no output parsing heuristics)
-- **Project grouping** — Sessions are grouped by working directory in a collapsible sidebar
-- **Session management** — Create, rename (double-click or right-click), close, and dismiss sessions
-- **Pull latest from main** — Optionally run `git checkout main && git pull` before spawning a new session
-- **Keyboard shortcuts** — `Cmd+T` new session, `Cmd+W` close active, `Cmd+1-9` switch sessions
-- **Worktree isolation** — Each session runs `claude --worktree` by default, giving it an isolated git branch
-- **Skip permissions** — Optionally pass `--dangerously-skip-permissions` (default on) so agents run unattended
+<table>
+<tr>
+<td width="50%" valign="top">
 
-## How status detection works
+### Parallel Sessions
 
-On first launch, the app installs a lightweight hook into your Claude Code configuration:
+Run 5+ Claude Code agents simultaneously, each in its own PTY with full terminal emulation. 256-color support, 10k-line scrollback, and instant switching without losing context.
 
-- **Creates** `~/.claude/agent-orchestrator-notify.sh` — a small bash script that forwards hook events via `curl`
-- **Adds entries** to `~/.claude/settings.json` — registers `Notification` and `Stop` hooks pointing to the script
-- **Sets** `messageIdleNotifThresholdMs: 500` in `~/.claude.json` — lowers the idle notification delay
+![Parallel sessions sidebar](assets/feature-parallel-sessions.png)
 
-The app runs a local HTTP server on a random port. When Claude Code fires a hook (idle, permission prompt, stop), the script POSTs the event to the app, which updates the session status instantly. This is idempotent — re-launching the app won't duplicate entries.
+</td>
+<td width="50%" valign="top">
 
-<video src="https://github.com/stantonSB/Agent-Orchestrator/raw/main/assets/init-2-sessions.mov" controls autoplay muted loop></video>
+### Real-Time Status
 
-## Installation (macOS)
+Hook-driven detection shows Working, Idle, Needs Attention, Finished, and Error for each session. No output parsing — status updates come directly from Claude Code's hook system.
 
-Download the latest `.dmg` from the [Releases](https://github.com/stantonSB/Agent-Orchestrator/releases) page.
+![Session status indicators](assets/feature-status.png)
 
-Since the app is not yet code-signed with an Apple Developer certificate, macOS Gatekeeper will block it on first launch. After installing, run this command once to allow it:
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
 
-```bash
-xattr -dr com.apple.quarantine /Applications/Agent\ Orchestrator.app
-```
+### Project Grouping
 
-Then open the app normally. This only needs to be done once after downloading.
+Sessions are automatically grouped by working directory in a collapsible sidebar. See all your active projects at a glance.
 
-> **Why?** When macOS downloads a file via a browser, it attaches a quarantine attribute. Unsigned apps with this attribute are blocked by Gatekeeper. The command above removes the quarantine flag.
 
-## Architecture
+</td>
+<td width="50%" valign="top">
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Tauri WebView (React 19 + xterm.js + Zustand)      │
-│  ┌──────────────────────┐ ┌───────────────────────┐ │
-│  │  Terminal Area        │ │  Session Panel        │ │
-│  │  (XTermInstance ×N)   │ │  (ProjectGroup ×N)    │ │
-│  │  CSS show/hide        │ │  (SessionCard ×N)     │ │
-│  └──────────┬───────────┘ └───────────────────────┘ │
-│             │ IPC (invoke)                           │
-├─────────────┼───────────────────────────────────────┤
-│  Rust Backend                                        │
-│  ┌──────────▼───────────┐ ┌───────────────────────┐ │
-│  │  PTY Manager Thread   │ │  Status HTTP Server   │ │
-│  │  (mpsc channels)      │ │  (tiny_http, :0)      │ │
-│  │  portable-pty         │ │  POST /status/{id}    │ │
-│  └──────────────────────┘ └───────────────────────┘ │
-│  ┌──────────────────────┐ ┌───────────────────────┐ │
-│  │  Hook Installer       │ │  Env Capture          │ │
-│  │  (~/.claude/ files)   │ │  ($SHELL -li -c env)  │ │
-│  └──────────────────────┘ └───────────────────────┘ │
-└─────────────────────────────────────────────────────┘
-```
+### Worktree Isolation
 
-The PTY manager runs on a dedicated OS thread (required by `portable-pty` — handles aren't `Send`/`Sync`). All communication happens via mpsc channels. The app captures the user's full login-shell environment on startup so that sessions spawned from the `.app` bundle have access to `claude`, `node`, custom certs, etc.
+Each session runs `claude --worktree` by default, giving it an isolated git branch. Multiple agents can work on the same repo without conflicts.
 
-## Keyboard Shortcuts
+</td>
+</tr>
+</table>
 
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+T` | Open new session modal |
-| `Cmd+W` | Close active session |
-| `Cmd+1` – `Cmd+9` | Switch to session by position |
+---
 
-## Troubleshooting
+## Install
 
-### Status stuck on "Starting"
+1. Download the latest `.dmg` from [**Releases**](https://github.com/stantonSB/Agent-Orchestrator/releases)
+2. Drag to Applications, then run:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Agent\ Orchestrator.app
+   ```
+3. Open Agent Orchestrator
 
-The hook script may not be installed. Check that `~/.claude/agent-orchestrator-notify.sh` exists and is executable, and that `~/.claude/settings.json` contains `Notification` and `Stop` hook entries referencing it. Relaunch the app to trigger auto-installation.
+> See [Installation Guide](docs/installation.md) for details on Gatekeeper, first launch, and prerequisites.
 
-### Sessions won't spawn / "claude" not found
+---
 
-The `.app` bundle captures your login shell environment on startup. If `claude` isn't on your shell's `PATH`, the app won't find it. Ensure `claude` is available in a new terminal window, then relaunch the app.
+## Quick Start
 
-### Status shows "Needs Attention" but there's no prompt
+Open the app → `Cmd+T` → type your prompt → go.
 
-Claude Code may have fired a `permission_prompt` or `elicitation_dialog` hook. Scroll up in the terminal to find the prompt, or type a response to dismiss the status.
+<video src="https://github.com/stantonSB/Agent-Orchestrator/raw/main/assets/quick-start.mp4" controls autoplay muted loop></video>
 
-## Tech Stack
-
-- **Frontend:** React 19, TypeScript, Vite, xterm.js, Zustand
-- **Backend:** Rust, Tauri 2, portable-pty, tiny_http
-- **Packaging:** Tauri bundler (DMG + .app)
+---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [`docs/INDEX.md`](docs/INDEX.md) | Full index of all design specs, implementation plans, and backlog items |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Prerequisites, setup, building, testing, releasing, and IDE configuration |
-| [`CLAUDE.md`](CLAUDE.md) | AI assistant instructions — architecture overview, conventions, and file layout |
-| [`docs/future-phases/tech-debt.md`](docs/future-phases/tech-debt.md) | Known tech debt: error handling, validation, and test gaps |
-| [`docs/future-phases/nested-subagent-terminals.md`](docs/future-phases/nested-subagent-terminals.md) | Future feature design for subagent tabs within parent sessions |
-
-## Development
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for setup, building, testing, releasing, and IDE configuration.
+| | Document | Description |
+|-|----------|-------------|
+| 📦 | [Installation](docs/installation.md) | Download, Gatekeeper bypass, prerequisites, first launch |
+| 🏗️ | [Architecture](docs/architecture.md) | System design, component deep-dives, data flow |
+| 🛠️ | [Development](docs/development.md) | Setup, build, test, release, IDE configuration |
+| 🔔 | [How Status Works](docs/how-status-works.md) | Hook protocol, state machine, event flow |
+| ⌨️ | [Keyboard Shortcuts](docs/keyboard-shortcuts.md) | All shortcuts and navigation |
+| 🔧 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |

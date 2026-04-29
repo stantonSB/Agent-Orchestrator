@@ -48,9 +48,13 @@ src/                    # React frontend
   types/                # TypeScript types
 src-tauri/src/          # Rust backend
 docs/
+  installation.md       # Download, Gatekeeper, first launch
+  architecture.md       # System design and component deep-dives
+  development.md        # Setup, build, test, release
+  how-status-works.md   # Hook protocol and state machine
+  keyboard-shortcuts.md # All keyboard shortcuts
+  troubleshooting.md    # Common issues and fixes
   future-phases/        # Backlog: tech-debt.md, nested-subagent-terminals.md
-  superpowers/specs/    # Design specs (YYYY-MM-DD-topic-design.md)
-  superpowers/plans/    # Implementation plans (YYYY-MM-DD-topic.md)
 ```
 
 ## Status Hook Protocol
