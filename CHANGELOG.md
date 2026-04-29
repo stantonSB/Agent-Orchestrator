@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0] - 2026-04-29 — Public Release
+
+### Added
+- **Clickable file paths in terminal** — Cmd+click on file paths in terminal output to open them directly in your editor (#63)
+
+### Fixed
+- **Non-git directory session stability** — Fixed session timeout and crash when working in directories without a git repository (#65)
+- **Terminal last row clipping** — Fixed the bottom row of terminal output being cut off by moving padding to the .xterm element (#64)
+
 ## [0.3.1] - 2026-04-24
 
 ### Fixed
