@@ -31,6 +31,7 @@ Run 5+ Claude Code agents simultaneously, each in its own PTY with full terminal
 
 Hook-driven detection shows Working, Idle, Needs Attention, Finished, and Error for each session. No output parsing — status updates come directly from Claude Code's hook system.
 
+![Session status indicators](assets/feature-status.png)
 
 </td>
 </tr>
