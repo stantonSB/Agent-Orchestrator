@@ -7,6 +7,8 @@ export type SessionStatus =
   | "error"
   | "terminal";
 
+export type SessionMode = "claude" | "claude-skip" | "claude-plan" | "terminal";
+
 export interface SessionInfo {
   id: string;
   name: string;
