@@ -1,0 +1,23 @@
+{
+  "skill_name": "release",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I just merged a couple bug fixes, let's cut a patch release",
+      "expected_output": "Should detect current version 0.5.1, ask about release type (user picks patch), bump to 0.5.2 across all three version files, generate release notes from commits since v0.5.1, update CHANGELOG.md, commit, build, tag v0.5.2, and create GitHub release with artifacts",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "We've shipped some new features - time for a minor release of Agent Orchestrator",
+      "expected_output": "Should detect current version 0.5.1, present release type options (user picks minor), bump to 0.6.0, generate release notes categorized by Added/Fixed/Changed, update all version files and CHANGELOG.md, build artifacts named AgentOrchestrator-v0.6.0.dmg etc, tag and push, create GitHub release",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "let's ship it",
+      "expected_output": "Should recognize this as a release request, check current version, ask what type of release, then follow the full workflow. Tests that the skill triggers on casual phrasing.",
+      "files": []
+    }
+  ]
+}
