@@ -36,7 +36,7 @@ The README has 6 sections, visual-heavy at the top, reference links at the botto
 | Parallel Sessions | Run 5+ agents simultaneously, each with full terminal emulation, 10k scrollback | `assets/feature-parallel-sessions.png` |
 | Real-Time Status | Hook-driven detection: Working, Idle, Needs Attention, Finished, Error — no output parsing | `assets/feature-status.png` |
 | Project Grouping | Sessions grouped by working directory in collapsible sidebar groups | `assets/feature-project-groups.png` |
-| Worktree Isolation | Each session gets `--worktree` by default for isolated git branches | (text-only or reuse another screenshot) |
+| Worktree Isolation | Each session gets `--worktree` by default for isolated git branches | Text-only (no dedicated screenshot) |
 
 ### Section 4 — Quick Install
 
@@ -52,7 +52,7 @@ Link to `docs/installation.md` for details and troubleshooting.
 
 Short description of the core workflow: open app → Cmd+T → type prompt → go. Accompanied by a 10-15 second video showing this loop.
 
-- Asset: `assets/quick-start.mov`
+- Asset: `assets/quick-start.mp4` (mp4 for GitHub inline video rendering; `.mov` won't embed)
 
 ### Section 6 — Documentation Glossary
 
@@ -140,7 +140,7 @@ Remove these files/directories:
 - `docs/superpowers/` — internal design specs and implementation plans, served their purpose during development
 - `docs/INDEX.md` — replaced by the README glossary table
 - `DEVELOPMENT.md` (root) — content moves to `docs/development.md`
-- `docs/future-phases.md` — if redundant with the `docs/future-phases/` folder
+- `docs/future-phases.md` — redundant pointer to the `docs/future-phases/` folder
 
 Keep `docs/future-phases/` directory (tech-debt.md, nested-subagent-terminals.md) — these are internal backlog items, not user-facing, but still useful for contributors. They don't need to appear in the glossary.
 
@@ -154,9 +154,15 @@ All stored in `assets/` at repo root.
 | `feature-parallel-sessions.png` | Screenshot | Sidebar showing 5+ sessions to convey scale |
 | `feature-status.png` | Screenshot | Close-up of session cards with different status dots and activity pulse |
 | `feature-project-groups.png` | Screenshot | Sidebar with 2-3 project groups, mix of collapsed/expanded |
-| `quick-start.mov` | Video | 10-15 sec: open app → Cmd+T → type prompt → session starts working |
+| `quick-start.mp4` | Video | 10-15 sec: open app → Cmd+T → type prompt → session starts working |
 
-The existing `assets/init-2-sessions.mov` can be removed once `quick-start.mov` replaces it, or kept if still referenced elsewhere.
+The existing `assets/init-2-sessions.mov` can be removed once `quick-start.mp4` replaces it.
+
+## Media Guidelines
+
+- All screenshots at 2x Retina resolution, ~1400px wide for consistent appearance
+- Use a consistent window size across all screenshots
+- Video format: `.mp4` (GitHub renders inline; `.mov` renders as download link only)
 
 ## Out of Scope
 
