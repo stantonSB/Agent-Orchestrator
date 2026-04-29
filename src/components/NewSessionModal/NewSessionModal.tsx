@@ -32,6 +32,11 @@ export function NewSessionModal({
       setPullLatest(false);
       setInitWithClaude(true);
       setIsGitRepo(null);
+      if (lastUsedDirectory) {
+        invoke<boolean>("check_is_git_repo", { cwd: lastUsedDirectory })
+          .then(setIsGitRepo)
+          .catch(() => setIsGitRepo(false));
+      }
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, lastUsedDirectory]);
@@ -66,7 +71,7 @@ export function NewSessionModal({
   const handleCreate = () => {
     const trimmedName = name.trim();
     if (!trimmedName || !directory) return;
-    onCreate(trimmedName, directory, effectiveSkipPermissions, effectivePullLatest, initWithClaude, isGitRepo ?? true);
+    onCreate(trimmedName, directory, effectiveSkipPermissions, effectivePullLatest, initWithClaude, isGitRepo ?? false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

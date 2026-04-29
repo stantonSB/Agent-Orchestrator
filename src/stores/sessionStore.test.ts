@@ -182,7 +182,7 @@ describe("sessionStore", () => {
       const store = useSessionStore.getState();
       await store.createSession("Pull Session", "/path/to/project", true, true);
 
-      expect(callOrder).toEqual(["git_pull_main", "create_session"]);
+      expect(callOrder).toEqual(["git_pull_main", "create_session", "get_session_status"]);
       expect(invoke).toHaveBeenCalledWith("git_pull_main", {
         cwd: "/path/to/project",
       });

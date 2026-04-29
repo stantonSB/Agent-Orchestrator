@@ -92,6 +92,7 @@ pub fn run() {
 
             // Start the PTY manager, giving it the shared trackers and the
             // port so newly spawned sessions get the correct env vars.
+            let status_trackers_for_state = status_trackers.clone();
             let pty_handle = pty_manager::start(
                 on_output,
                 on_exit,
@@ -105,6 +106,7 @@ pub fn run() {
             app.manage(AppState {
                 pty: pty_handle,
                 status_server,
+                status_trackers: status_trackers_for_state,
             });
 
             Ok(())
@@ -120,6 +122,7 @@ pub fn run() {
             commands::list_sessions,
             commands::git_pull_main,
             commands::check_is_git_repo,
+            commands::get_session_status,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
