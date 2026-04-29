@@ -5,7 +5,7 @@ import type { SessionMode } from "../../types/session";
 import styles from "./NewSessionModal.module.css";
 
 const STORAGE_KEY = "ao-last-session-mode";
-const VALID_MODES: SessionMode[] = ["claude", "claude-skip", "claude-plan", "terminal"];
+const VALID_MODES: SessionMode[] = ["claude-auto", "claude", "claude-skip", "claude-plan", "terminal"];
 
 function getStoredMode(): SessionMode {
   const stored = localStorage.getItem(STORAGE_KEY);
@@ -149,6 +149,7 @@ export function NewSessionModal({
             value={sessionMode}
             onChange={(e) => setSessionMode(e.target.value as SessionMode)}
           >
+            <option value="claude-auto">Claude (auto)</option>
             <option value="claude">Claude</option>
             <option value="claude-skip">Claude (skip permissions)</option>
             <option value="claude-plan">Claude (plan mode)</option>

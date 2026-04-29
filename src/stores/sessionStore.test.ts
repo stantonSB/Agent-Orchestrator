@@ -299,6 +299,22 @@ describe("sessionStore", () => {
         sessionType: "claude",
       });
     });
+
+    it("creates a claude session with --auto when mode is 'claude-auto'", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("auto-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Auto Session", "/path/to/project", "claude-auto");
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Auto Session",
+        cwd: "/path/to/project",
+        command: "claude",
+        args: ["--permission-mode", "auto", "--worktree"],
+        sessionType: "claude",
+      });
+    });
   });
 
   describe("closeSession", () => {

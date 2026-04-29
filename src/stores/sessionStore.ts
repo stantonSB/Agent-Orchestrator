@@ -32,7 +32,7 @@ interface SessionState {
   dismissToast: (id: string) => void;
 
   // Event listener management
-  setupEventListeners: (sessionId: string) => void;
+  setupEventListeners: (sessionId: string, sessionMode?: SessionMode) => void;
 }
 
 const eventCleanups = new Map<string, UnlistenFn[]>();
@@ -205,7 +205,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     } else {
       const args: string[] = [];
-      if (sessionMode === "claude-skip") {
+      if (sessionMode === "claude-auto") {
+        args.push("--permission-mode", "auto");
+      } else if (sessionMode === "claude-skip") {
         args.push("--dangerously-skip-permissions");
       } else if (sessionMode === "claude-plan") {
         args.push("--plan");
@@ -233,7 +235,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     get().addSession(session);
     get().setActiveSession(id);
-    get().setupEventListeners(id);
+    get().setupEventListeners(id, sessionMode);
     set({ lastUsedDirectory: cwd });
 
     if (sessionMode !== "terminal") {
@@ -264,7 +266,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  setupEventListeners: (sessionId) => {
+  setupEventListeners: (sessionId, sessionMode) => {
     let cancelled = false;
     const cleanups: Promise<UnlistenFn>[] = [];
     const session = get().sessions.get(sessionId);
@@ -289,6 +291,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         } else {
           const status: SessionStatus = event.payload.code === 0 ? "finished" : "error";
           get().updateSessionStatus(sessionId, status);
+
+          if (sessionMode === "claude-auto" && status === "error") {
+            const session = get().sessions.get(sessionId);
+            const ageSeconds = session ? (Date.now() - session.createdAt) / 1000 : Infinity;
+            if (ageSeconds < 10) {
+              get().addToast(
+                "Auto mode failed to start. Make sure Claude Code is updated to v2.1.83 or later: run 'claude update' in your terminal.",
+                "error"
+              );
+            }
+          }
         }
       })
     );
