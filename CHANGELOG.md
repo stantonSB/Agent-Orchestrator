@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0] - 2026-04-29
+
+### Added
+- **Session mode dropdown** — Replaced individual session checkboxes with a unified mode dropdown for cleaner workflow control (#71)
+- **Release management skill** — Added automated release workflow for version bumping, changelog generation, and GitHub releases (#66)
+
+### Fixed
+- **Terminal padding background** — Matched terminal padding background color to the active theme, eliminating visual artifacts (#68)
+
+### Changed
+- **Open-source preparation** — Added MIT license, contributing guidelines, and cleaned up repository for public release (#72)
+- **Documentation revamp** — Redesigned README with visual layout and split documentation into 6 standalone guides (#69)
+
 ## [1.0.0] - 2026-04-29 — Public Release
 
 ### Added
