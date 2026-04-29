@@ -1,7 +1,12 @@
 {
   "name": "agent-orchestrator",
-  "private": true,
   "version": "1.0.0",
+  "description": "Run multiple Claude Code sessions in parallel with real-time status monitoring",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stantonSB/Agent-Orchestrator.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

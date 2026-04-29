@@ -5,7 +5,7 @@
 //! the mpsc channel and manager thread) and exercises it the same way
 //! the Tauri command layer does.
 
-use tauri_app_lib::pty_manager::PtyResponse;
+use agent_orchestrator_lib::pty_manager::PtyResponse;
 
 /// Test listing sessions when none exist.
 #[test]
@@ -48,7 +48,7 @@ fn test_create_and_list_roundtrip() {
         vec!["hello".into()],
         80,
         24,
-        tauri_app_lib::pty_manager::SessionType::Claude,
+        agent_orchestrator_lib::pty_manager::SessionType::Claude,
     ) {
         PtyResponse::Created { id } => id,
         other => panic!("Expected Created, got: {:?}", other),
@@ -122,10 +122,10 @@ fn test_write_not_found() {
 // Helper
 // ---------------------------------------------------------------------------
 
-fn make_handle() -> tauri_app_lib::pty_manager::PtyManagerHandle {
+fn make_handle() -> agent_orchestrator_lib::pty_manager::PtyManagerHandle {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
-    use tauri_app_lib::status_parser::StatusTracker;
+    use agent_orchestrator_lib::status_parser::StatusTracker;
 
     let ol: Arc<Mutex<Vec<(String, Vec<u8>)>>> = Arc::new(Mutex::new(Vec::new()));
     let el: Arc<Mutex<Vec<(String, Option<u32>)>>> = Arc::new(Mutex::new(Vec::new()));
@@ -136,7 +136,7 @@ fn make_handle() -> tauri_app_lib::pty_manager::PtyManagerHandle {
     let status_trackers: Arc<Mutex<HashMap<String, StatusTracker>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
-    tauri_app_lib::pty_manager::start(
+    agent_orchestrator_lib::pty_manager::start(
         Box::new(move |id, data| {
             ol_c.lock().unwrap().push((id, data));
         }),

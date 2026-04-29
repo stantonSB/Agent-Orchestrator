@@ -24,3 +24,12 @@ src-tauri/target/
 *.sln
 *.sw?
 .superpowers/
+
+# Claude Code local files
+.claude/
+.claire/
+
+# Environment files
+.env
+.env.local
+.env.*.local
