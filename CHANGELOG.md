@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-04-29
+
+### Added
+- **Terminal search** — Press Cmd+F to open a floating search bar for finding text within any terminal session (#75)
+- **Claude (auto) session mode** — New session mode that lets Claude run autonomously without manual intervention (#74)
+
+### Fixed
+- **Terminal padding color** — Matched terminal padding/margin color to the terminal background, eliminating visual seams (#73)
+
 ## [1.1.0] - 2026-04-29
 
 ### Added
