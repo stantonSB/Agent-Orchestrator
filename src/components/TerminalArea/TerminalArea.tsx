@@ -1,8 +1,9 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import {
   XTermInstance,
   type XTermInstanceHandle,
 } from "../XTermInstance/XTermInstance";
+import { SearchBar } from "../SearchBar/SearchBar";
 import {
   onSessionOutput,
   onSessionExit,
@@ -39,6 +40,7 @@ export function TerminalArea({
   onSessionExit: onSessionExitProp,
   mockMode = false,
 }: TerminalAreaProps) {
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const refsMap = useRef(new Map<string, XTermInstanceHandle>());
   const outputListeners = useRef(new Map<string, Promise<() => void>>());
   const exitListeners = useRef(new Map<string, Promise<() => void>>());
@@ -174,6 +176,57 @@ export function TerminalArea({
     [mockMode],
   );
 
+  const openSearch = useCallback(() => {
+    if (activeSessionId && sessions.length > 0) {
+      setIsSearchOpen(true);
+    }
+  }, [activeSessionId, sessions.length]);
+
+  const closeSearch = useCallback(() => {
+    if (activeSessionId) {
+      refsMap.current.get(activeSessionId)?.clearSearch();
+      refsMap.current.get(activeSessionId)?.focus();
+    }
+    setIsSearchOpen(false);
+  }, [activeSessionId]);
+
+  // Close search when switching sessions
+  useEffect(() => {
+    setIsSearchOpen(false);
+  }, [activeSessionId]);
+
+  // Cmd+F keybinding
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.metaKey && e.key === "f") {
+        e.preventDefault();
+        openSearch();
+      }
+      if (e.key === "Escape" && isSearchOpen) {
+        e.preventDefault();
+        closeSearch();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [openSearch, closeSearch, isSearchOpen]);
+
+  const handleFindNext = useCallback(
+    (query: string) => {
+      if (!activeSessionId) return false;
+      return refsMap.current.get(activeSessionId)?.findNext(query) ?? false;
+    },
+    [activeSessionId],
+  );
+
+  const handleFindPrevious = useCallback(
+    (query: string) => {
+      if (!activeSessionId) return false;
+      return refsMap.current.get(activeSessionId)?.findPrevious(query) ?? false;
+    },
+    [activeSessionId],
+  );
+
   if (sessions.length === 0) {
     return (
       <div className={styles.terminalArea}>
@@ -192,6 +245,13 @@ export function TerminalArea({
   return (
     <div className={styles.terminalArea}>
       <div className={styles.terminalContainer}>
+        {isSearchOpen && (
+          <SearchBar
+            onFindNext={handleFindNext}
+            onFindPrevious={handleFindPrevious}
+            onClose={closeSearch}
+          />
+        )}
         {sessions.map((session) => (
           <XTermInstance
             key={session.id}

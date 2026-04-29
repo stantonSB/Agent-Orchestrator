@@ -14,6 +14,10 @@ import styles from "./XTermInstance.module.css";
 export interface XTermInstanceHandle {
   write: (data: string | Uint8Array) => void;
   fit: () => void;
+  findNext: (query: string) => boolean;
+  findPrevious: (query: string) => boolean;
+  clearSearch: () => void;
+  focus: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,7 +44,7 @@ interface XTermInstanceProps {
 
 export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>(
   function XTermInstance({ sessionId: _sessionId, cwd, onData, onResize, mockMode, isActive }, ref) {
-    const { containerRef, write, fit, getTerminal } = useTerminal({
+    const { containerRef, write, fit, getTerminal, findNext, findPrevious, clearSearch } = useTerminal({
       onData,
       onResize,
       mockMode,
@@ -48,7 +52,14 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
     });
 
     // Expose handle to parent
-    useImperativeHandle(ref, () => ({ write, fit }), [write, fit]);
+    useImperativeHandle(ref, () => ({
+      write,
+      fit,
+      findNext,
+      findPrevious,
+      clearSearch,
+      focus: () => getTerminal()?.focus(),
+    }), [write, fit, findNext, findPrevious, clearSearch, getTerminal]);
 
     // Re-fit whenever this instance becomes active (the container may have
     // changed size while it was display:none).  Use double-rAF to ensure
