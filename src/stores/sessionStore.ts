@@ -233,6 +233,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().setActiveSession(id);
     get().setupEventListeners(id);
     set({ lastUsedDirectory: cwd });
+
+    // Catch any status events emitted before listeners were ready
+    if (initWithClaude) {
+      try {
+        const currentStatus = await invoke<string | null>("get_session_status", { id });
+        if (currentStatus && currentStatus !== "starting") {
+          get().updateSessionStatus(id, currentStatus as SessionStatus);
+        }
+      } catch {
+        // Session may have already been removed
+      }
+    }
   },
 
   closeSession: async (id) => {

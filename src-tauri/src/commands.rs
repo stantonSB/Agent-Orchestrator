@@ -158,6 +158,18 @@ pub fn git_pull_main(cwd: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_session_status(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<String>, String> {
+    let trackers = state
+        .status_trackers
+        .lock()
+        .map_err(|e| format!("Failed to lock status trackers: {e}"))?;
+    Ok(trackers.get(&id).map(|t| t.status().as_str().to_string()))
+}
+
+#[tauri::command]
 pub fn check_is_git_repo(cwd: String) -> Result<bool, String> {
     let path = PathBuf::from(&cwd);
     if !path.exists() {
