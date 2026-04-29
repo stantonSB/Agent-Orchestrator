@@ -23,6 +23,7 @@
    calculation, so rows are computed correctly. */
 .container :global(.xterm) {
   padding: 10px;
+  background: var(--bg-primary);
 }
 
 .container :global(.xterm-viewport) {
