@@ -16,7 +16,7 @@ Download the latest `.dmg` from the [Releases](https://github.com/stantonSB/Agen
 2. Since the app is not yet code-signed with an Apple Developer certificate, macOS Gatekeeper will block it on first launch. Run this command once to allow it:
 
    ```bash
-   xattr -dr com.apple.quarantine /Applications/Agent\ Orchestrator.app
+   xattr -dr com.apple.quarantine /Applications/"Agent Orchestrator.app"
    ```
 
 3. Open the app normally. This only needs to be done once after downloading.
