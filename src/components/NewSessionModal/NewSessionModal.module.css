@@ -60,6 +60,24 @@
   color: #4b5563;
 }
 
+.select {
+  padding: 8px 12px;
+  background: #12121a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 14px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  outline: none;
+  transition: border-color 0.15s ease;
+  cursor: pointer;
+  width: 100%;
+}
+
+.select:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
 .folderRow {
   display: flex;
   align-items: center;
@@ -122,11 +140,6 @@
 .checkboxLabel {
   font-size: 13px;
   color: #9ca3af;
-}
-
-.checkboxLabelPrimary {
-  color: #e5e7eb;
-  font-weight: 500;
 }
 
 .checkboxDisabled {

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { SessionInfo, SessionStatus, SubagentStatus } from "../types/session";
+import type { SessionInfo, SessionMode, SessionStatus, SubagentStatus } from "../types/session";
 import type { ToastData } from "../components/Toast/Toast";
 
 interface SessionState {
@@ -22,7 +22,7 @@ interface SessionState {
   dismissSession: (id: string) => void;
 
   // Tauri IPC actions
-  createSession: (name: string, cwd: string, skipPermissions?: boolean, pullLatest?: boolean, initWithClaude?: boolean, isGitRepo?: boolean) => Promise<void>;
+  createSession: (name: string, cwd: string, sessionMode?: SessionMode, pullLatest?: boolean, isGitRepo?: boolean) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
@@ -180,7 +180,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  createSession: async (name, cwd, skipPermissions = true, pullLatest = false, initWithClaude = true, isGitRepo = true) => {
+  createSession: async (name, cwd, sessionMode = "claude", pullLatest = false, isGitRepo = true) => {
     if (pullLatest) {
       await invoke("git_pull_main", { cwd });
     }
@@ -188,10 +188,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let id: string;
     let session: SessionInfo;
 
-    if (initWithClaude) {
+    if (sessionMode === "terminal") {
+      id = await invoke<string>("create_session", {
+        name,
+        cwd,
+        sessionType: "terminal",
+      });
+      session = {
+        id,
+        name,
+        status: "terminal",
+        createdAt: Date.now(),
+        cwd,
+        sessionType: "terminal",
+        isGitRepo: false,
+      };
+    } else {
       const args: string[] = [];
-      if (skipPermissions) {
+      if (sessionMode === "claude-skip") {
         args.push("--dangerously-skip-permissions");
+      } else if (sessionMode === "claude-plan") {
+        args.push("--plan");
       }
       if (isGitRepo) {
         args.push("--worktree");
@@ -212,21 +229,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionType: "claude",
         isGitRepo,
       };
-    } else {
-      id = await invoke<string>("create_session", {
-        name,
-        cwd,
-        sessionType: "terminal",
-      });
-      session = {
-        id,
-        name,
-        status: "terminal",
-        createdAt: Date.now(),
-        cwd,
-        sessionType: "terminal",
-        isGitRepo: false,
-      };
     }
 
     get().addSession(session);
@@ -234,8 +236,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().setupEventListeners(id);
     set({ lastUsedDirectory: cwd });
 
-    // Catch any status events emitted before listeners were ready
-    if (initWithClaude) {
+    if (sessionMode !== "terminal") {
       try {
         const currentStatus = await invoke<string | null>("get_session_status", { id });
         if (currentStatus && currentStatus !== "starting") {

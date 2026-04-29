@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import type { SessionMode } from "../../types/session";
 import styles from "./NewSessionModal.module.css";
+
+const STORAGE_KEY = "ao-last-session-mode";
+const VALID_MODES: SessionMode[] = ["claude", "claude-skip", "claude-plan", "terminal"];
+
+function getStoredMode(): SessionMode {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored && VALID_MODES.includes(stored as SessionMode)) {
+    return stored as SessionMode;
+  }
+  return "claude";
+}
 
 interface NewSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean, initWithClaude: boolean, isGitRepo: boolean) => void;
+  onCreate: (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => void;
   lastUsedDirectory: string | null;
 }
 
@@ -18,9 +30,8 @@ export function NewSessionModal({
 }: NewSessionModalProps) {
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState<string | null>(null);
-  const [skipPermissions, setSkipPermissions] = useState(true);
+  const [sessionMode, setSessionMode] = useState<SessionMode>(getStoredMode);
   const [pullLatest, setPullLatest] = useState(false);
-  const [initWithClaude, setInitWithClaude] = useState(true);
   const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -28,9 +39,8 @@ export function NewSessionModal({
     if (isOpen) {
       setName("");
       setDirectory(lastUsedDirectory);
-      setSkipPermissions(true);
+      setSessionMode(getStoredMode());
       setPullLatest(false);
-      setInitWithClaude(true);
       setIsGitRepo(null);
       if (lastUsedDirectory) {
         invoke<boolean>("check_is_git_repo", { cwd: lastUsedDirectory })
@@ -65,13 +75,13 @@ export function NewSessionModal({
     }
   };
 
-  const effectiveSkipPermissions = initWithClaude ? skipPermissions : false;
   const effectivePullLatest = isGitRepo === false ? false : pullLatest;
 
   const handleCreate = () => {
     const trimmedName = name.trim();
     if (!trimmedName || !directory) return;
-    onCreate(trimmedName, directory, effectiveSkipPermissions, effectivePullLatest, initWithClaude, isGitRepo ?? false);
+    localStorage.setItem(STORAGE_KEY, sessionMode);
+    onCreate(trimmedName, directory, sessionMode, effectivePullLatest, isGitRepo ?? false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -129,17 +139,22 @@ export function NewSessionModal({
           </div>
         </div>
 
-        <label className={styles.checkboxRow}>
-          <input
-            type="checkbox"
-            checked={initWithClaude}
-            onChange={(e) => setInitWithClaude(e.target.checked)}
-            className={styles.checkbox}
-          />
-          <span className={`${styles.checkboxLabel} ${styles.checkboxLabelPrimary}`}>
-            Initialise with Claude
-          </span>
-        </label>
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="session-mode">
+            Session Mode
+          </label>
+          <select
+            id="session-mode"
+            className={styles.select}
+            value={sessionMode}
+            onChange={(e) => setSessionMode(e.target.value as SessionMode)}
+          >
+            <option value="claude">Claude</option>
+            <option value="claude-skip">Claude (skip permissions)</option>
+            <option value="claude-plan">Claude (plan mode)</option>
+            <option value="terminal">Terminal</option>
+          </select>
+        </div>
 
         <label className={`${styles.checkboxRow} ${isGitRepo === false ? styles.checkboxDisabled : ""}`}>
           <input
@@ -150,17 +165,6 @@ export function NewSessionModal({
             className={styles.checkbox}
           />
           <span className={styles.checkboxLabel}>Pull latest from main</span>
-        </label>
-
-        <label className={`${styles.checkboxRow} ${!initWithClaude ? styles.checkboxDisabled : ""}`}>
-          <input
-            type="checkbox"
-            checked={effectiveSkipPermissions}
-            onChange={(e) => setSkipPermissions(e.target.checked)}
-            disabled={!initWithClaude}
-            className={styles.checkbox}
-          />
-          <span className={styles.checkboxLabel}>Skip permissions</span>
         </label>
 
         <div className={styles.actions}>
