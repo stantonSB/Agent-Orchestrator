@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { useSessionStore } from "./stores/sessionStore";
+import type { SessionMode } from "./types/session";
 import { TitleBar } from "./components/TitleBar/TitleBar";
 import { SessionPanel, groupSessionsByProject } from "./components/SessionPanel/SessionPanel";
 import { NewSessionModal } from "./components/NewSessionModal/NewSessionModal";
@@ -85,9 +86,9 @@ export function App() {
     onSwitchToSession: handleSwitchToSession,
   });
 
-  const handleCreateSession = async (name: string, cwd: string, skipPermissions: boolean, pullLatest: boolean, initWithClaude: boolean, isGitRepo: boolean) => {
+  const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => {
     setIsModalOpen(false);
-    await createSession(name, cwd, skipPermissions, pullLatest, initWithClaude, isGitRepo);
+    await createSession(name, cwd, sessionMode, pullLatest, isGitRepo);
   };
 
   const handleResizeMouseDown = useCallback(
