@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { FilePathLinkProvider } from "./filePathLinkProvider";
@@ -59,6 +60,12 @@ export interface UseTerminalReturn {
   fit: () => void;
   /** Access the underlying Terminal instance (may be null before mount). */
   getTerminal: () => Terminal | null;
+  /** Search forward for the given query. Returns true if a match was found. */
+  findNext: (query: string) => boolean;
+  /** Search backward for the given query. Returns true if a match was found. */
+  findPrevious: (query: string) => boolean;
+  /** Clear search highlights. */
+  clearSearch: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +78,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const mockIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -105,12 +113,22 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     // Addons
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
     term.loadAddon(new WebLinksAddon((_event, uri) => {
       openUrl(uri);
     }));
     term.registerLinkProvider(new FilePathLinkProvider(term, cwdRef));
 
+    // Intercept Cmd+F so it doesn't get sent to the PTY
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.metaKey && event.key === "f") return false;
+      if (event.key === "Escape") return false;
+      return true;
+    });
+
     fitAddonRef.current = fitAddon;
+    searchAddonRef.current = searchAddon;
     termRef.current = term;
 
     // Mount
@@ -219,6 +237,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
         term.dispose();
         termRef.current = null;
         fitAddonRef.current = null;
+        searchAddonRef.current = null;
         observerRef.current = null;
       };
     }
@@ -231,6 +250,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
+      searchAddonRef.current = null;
       observerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,5 +279,17 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
   const getTerminal = useCallback(() => termRef.current, []);
 
-  return { containerRef, write, fit, getTerminal };
+  const findNext = useCallback((query: string) => {
+    return searchAddonRef.current?.findNext(query, { regex: false, caseSensitive: false, incremental: true }) ?? false;
+  }, []);
+
+  const findPrevious = useCallback((query: string) => {
+    return searchAddonRef.current?.findPrevious(query, { regex: false, caseSensitive: false }) ?? false;
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    searchAddonRef.current?.clearDecorations();
+  }, []);
+
+  return { containerRef, write, fit, getTerminal, findNext, findPrevious, clearSearch };
 }
