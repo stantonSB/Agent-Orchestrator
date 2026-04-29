@@ -19,6 +19,7 @@ import styles from "./TerminalArea.module.css";
 export interface TerminalSession {
   id: string;
   name: string;
+  cwd: string;
 }
 
 interface TerminalAreaProps {
@@ -196,6 +197,7 @@ export function TerminalArea({
             key={session.id}
             ref={setRef(session.id)}
             sessionId={session.id}
+            cwd={session.cwd}
             isActive={session.id === activeSessionId}
             mockMode={mockMode}
             onData={(data) => handleSessionData(session.id, data)}

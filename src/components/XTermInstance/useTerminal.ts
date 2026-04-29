@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { FilePathLinkProvider } from "./filePathLinkProvider";
 import "@xterm/xterm/css/xterm.css";
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,8 @@ export interface UseTerminalOptions {
   onResize?: (cols: number, rows: number) => void;
   /** Run in mock mode — echo input and emit fake output. */
   mockMode?: boolean;
+  /** Current working directory for the session. */
+  cwd?: string;
 }
 
 export interface UseTerminalReturn {
@@ -63,7 +66,7 @@ export interface UseTerminalReturn {
 // ---------------------------------------------------------------------------
 
 export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn {
-  const { onData, onResize, mockMode = false } = options;
+  const { onData, onResize, mockMode = false, cwd } = options;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -76,6 +79,8 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   onDataRef.current = onData;
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
 
   // -----------------------------------------------------------------------
   // Lifecycle
@@ -103,6 +108,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     term.loadAddon(new WebLinksAddon((_event, uri) => {
       openUrl(uri);
     }));
+    term.registerLinkProvider(new FilePathLinkProvider(term, cwdRef));
 
     fitAddonRef.current = fitAddon;
     termRef.current = term;
