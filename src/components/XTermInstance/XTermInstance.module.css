@@ -3,8 +3,9 @@
   height: 100%;
   overflow: hidden;
   background: var(--bg-primary);
-  /* Small inset so the terminal text doesn't touch the edges */
-  padding: 10px;
+  /* Padding is on .xterm element (below), NOT here — FitAddon reads the
+     parent's computed height but only subtracts the .xterm element's padding
+     when calculating row count.  Padding here clips the last row. */
   border-left: 2px solid transparent;
   box-sizing: border-box;
 }
@@ -15,6 +16,13 @@
 
 .hidden {
   display: none;
+}
+
+/* Inset so terminal text doesn't touch the container edges.
+   FitAddon subtracts the .xterm element's padding from its row/col
+   calculation, so rows are computed correctly. */
+.container :global(.xterm) {
+  padding: 10px;
 }
 
 .container :global(.xterm-viewport) {
