@@ -16,7 +16,13 @@ export type SessionMode = "claude-auto" | "claude" | "claude-skip" | "claude-pla
 
 ### 2. Dropdown UI (`src/components/NewSessionModal/NewSessionModal.tsx`)
 
-Add "Claude (auto)" as the first option in the session mode `<select>`:
+Add "Claude (auto)" as the first option in the session mode `<select>`, and add `"claude-auto"` to the `VALID_MODES` array (used to validate `localStorage` values):
+
+```typescript
+const VALID_MODES: SessionMode[] = ["claude-auto", "claude", "claude-skip", "claude-plan", "terminal"];
+```
+
+Dropdown order:
 
 ```
 Claude (auto)              → "claude-auto"
@@ -46,7 +52,7 @@ None. The Rust backend forwards arbitrary args to the PTY command. No changes ne
 
 ## Persistence
 
-The existing `localStorage` key `"ao-last-session-mode"` handles the new value automatically.
+The existing `localStorage` key `"ao-last-session-mode"` persists the selected mode. Adding `"claude-auto"` to the `VALID_MODES` array ensures the stored value passes validation on next modal open.
 
 ## Files Touched
 
