@@ -152,7 +152,7 @@ describe("sessionStore", () => {
       vi.mocked(invoke).mockResolvedValueOnce("new-id-456");
 
       const store = useSessionStore.getState();
-      await store.createSession("My Session", "/path/to/project");
+      await store.createSession("My Session", "/path/to/project", "claude-skip");
 
       expect(invoke).toHaveBeenCalledWith("create_session", {
         name: "My Session",
@@ -180,7 +180,7 @@ describe("sessionStore", () => {
       });
 
       const store = useSessionStore.getState();
-      await store.createSession("Pull Session", "/path/to/project", true, true);
+      await store.createSession("Pull Session", "/path/to/project", "claude-skip", true);
 
       expect(callOrder).toEqual(["git_pull_main", "create_session", "get_session_status"]);
       expect(invoke).toHaveBeenCalledWith("git_pull_main", {
@@ -193,18 +193,18 @@ describe("sessionStore", () => {
       vi.mocked(invoke).mockResolvedValueOnce("no-pull-id");
 
       const store = useSessionStore.getState();
-      await store.createSession("No Pull", "/path/to/project", true, false);
+      await store.createSession("No Pull", "/path/to/project", "claude-skip", false);
 
       expect(invoke).not.toHaveBeenCalledWith("git_pull_main", expect.anything());
       expect(invoke).toHaveBeenCalledWith("create_session", expect.anything());
     });
 
-    it("creates a terminal session when initWithClaude is false", async () => {
+    it("creates a terminal session when mode is 'terminal'", async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       vi.mocked(invoke).mockResolvedValueOnce("terminal-id-1");
 
       const store = useSessionStore.getState();
-      await store.createSession("My Terminal", "/path/to/project", true, false, false);
+      await store.createSession("My Terminal", "/path/to/project", "terminal");
 
       expect(invoke).toHaveBeenCalledWith("create_session", {
         name: "My Terminal",
@@ -223,7 +223,7 @@ describe("sessionStore", () => {
 
       const store = useSessionStore.getState();
       await expect(
-        store.createSession("Fail Pull", "/path/to/project", true, true)
+        store.createSession("Fail Pull", "/path/to/project", "claude-skip", true)
       ).rejects.toThrow("git pull failed");
 
       expect(invoke).not.toHaveBeenCalledWith("create_session", expect.anything());
@@ -235,7 +235,7 @@ describe("sessionStore", () => {
       vi.mocked(invoke).mockResolvedValueOnce("non-git-id");
 
       const store = useSessionStore.getState();
-      await store.createSession("Non-Git Session", "/path/to/non-git", true, false, true, false);
+      await store.createSession("Non-Git Session", "/path/to/non-git", "claude-skip", false, false);
 
       expect(invoke).toHaveBeenCalledWith("create_session", {
         name: "Non-Git Session",
@@ -254,7 +254,7 @@ describe("sessionStore", () => {
       vi.mocked(invoke).mockResolvedValueOnce("git-id");
 
       const store = useSessionStore.getState();
-      await store.createSession("Git Session", "/path/to/git-repo", true, false, true, true);
+      await store.createSession("Git Session", "/path/to/git-repo", "claude-skip", false, true);
 
       expect(invoke).toHaveBeenCalledWith("create_session", {
         name: "Git Session",
@@ -266,6 +266,38 @@ describe("sessionStore", () => {
 
       const session = useSessionStore.getState().sessions.get("git-id");
       expect(session?.isGitRepo).toBe(true);
+    });
+
+    it("creates a claude session with no extra args when mode is 'claude'", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("claude-default-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Default Claude", "/path/to/project", "claude");
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Default Claude",
+        cwd: "/path/to/project",
+        command: "claude",
+        args: ["--worktree"],
+        sessionType: "claude",
+      });
+    });
+
+    it("creates a claude session with --plan when mode is 'claude-plan'", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("plan-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Plan Session", "/path/to/project", "claude-plan");
+
+      expect(invoke).toHaveBeenCalledWith("create_session", {
+        name: "Plan Session",
+        cwd: "/path/to/project",
+        command: "claude",
+        args: ["--plan", "--worktree"],
+        sessionType: "claude",
+      });
     });
   });
 
