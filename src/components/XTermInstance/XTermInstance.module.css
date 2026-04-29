@@ -27,6 +27,7 @@
 }
 
 .container :global(.xterm-viewport) {
+  background-color: var(--bg-primary) !important;
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) transparent;
 }
