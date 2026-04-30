@@ -47,20 +47,27 @@ pub fn create_session(
 
     let session_type = match session_type.as_deref() {
         Some("terminal") => crate::pty_manager::SessionType::Terminal,
-        _ => crate::pty_manager::SessionType::Claude,
+        Some("claude") | None => crate::pty_manager::SessionType::Claude,
+        Some(other) => return Err(format!("Unknown session_type: {other}")),
     };
 
     let claude_mode = match session_mode.as_deref() {
         Some("auto") => crate::pty_manager::ClaudeMode::Auto,
         Some("skip") => crate::pty_manager::ClaudeMode::Skip,
         Some("plan") => crate::pty_manager::ClaudeMode::Plan,
-        _ => crate::pty_manager::ClaudeMode::Default,
+        None => crate::pty_manager::ClaudeMode::Default,
+        Some(other) => return Err(format!("Unknown session_mode: {other}")),
     };
 
-    let is_git_repo = is_git_repo.unwrap_or(false);
+    let is_git_repo = match session_type {
+        crate::pty_manager::SessionType::Claude => match is_git_repo {
+            Some(v) => v,
+            None => return Err("is_git_repo is required for Claude sessions".into()),
+        },
+        crate::pty_manager::SessionType::Terminal => is_git_repo.unwrap_or(false),
+    };
 
-    // If requested, pull latest main before spawning the session.
-    if pull_latest.unwrap_or(false) {
+    if pull_latest.unwrap_or(false) && session_type == crate::pty_manager::SessionType::Claude {
         git_pull_main_internal(&path)?;
     }
 
@@ -135,29 +142,61 @@ pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
 }
 
 /// Internal helper — not exposed as an IPC command.
+/// Intentionally not a #[tauri::command]; pulling is now coupled to session
+/// creation so the frontend cannot trigger pulls without spawning a session.
 fn git_pull_main_internal(path: &std::path::Path) -> Result<(), String> {
-    // Checkout main branch
+    let display_path = path.display();
+
+    // Capture original branch so we can restore on failure.
+    let original_branch = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(path)
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("git is not installed or not in PATH (needed for {display_path})")
+            } else {
+                format!("Failed to run git in {display_path}: {e}")
+            }
+        })?;
+
+    let original_branch = String::from_utf8_lossy(&original_branch.stdout).trim().to_string();
+
     let checkout = std::process::Command::new("git")
         .args(["checkout", "main"])
         .current_dir(path)
         .output()
-        .map_err(|e| format!("Failed to run git checkout: {e}"))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("git is not installed or not in PATH (needed for {display_path})")
+            } else {
+                format!("Failed to run git checkout in {display_path}: {e}")
+            }
+        })?;
 
     if !checkout.status.success() {
         let stderr = String::from_utf8_lossy(&checkout.stderr);
-        return Err(format!("git checkout main failed: {stderr}"));
+        return Err(format!("git checkout main failed in {display_path}: {stderr}"));
     }
 
-    // Pull latest
     let pull = std::process::Command::new("git")
         .args(["pull", "origin", "main"])
         .current_dir(path)
         .output()
-        .map_err(|e| format!("Failed to run git pull: {e}"))?;
+        .map_err(|e| format!("Failed to run git pull in {display_path}: {e}"))?;
 
     if !pull.status.success() {
         let stderr = String::from_utf8_lossy(&pull.stderr);
-        return Err(format!("git pull origin main failed: {stderr}"));
+        // Attempt to restore the original branch since checkout succeeded but pull failed.
+        if !original_branch.is_empty() && original_branch != "main" {
+            let _ = std::process::Command::new("git")
+                .args(["checkout", &original_branch])
+                .current_dir(path)
+                .output();
+        }
+        return Err(format!(
+            "git pull origin main failed in {display_path}: {stderr}"
+        ));
     }
 
     Ok(())
@@ -186,7 +225,13 @@ pub fn check_is_git_repo(cwd: String) -> Result<bool, String> {
         .args(["rev-parse", "--git-dir"])
         .current_dir(&path)
         .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "git is not installed or not in PATH".to_string()
+            } else {
+                format!("Failed to run git: {e}")
+            }
+        })?;
 
     Ok(output.status.success())
 }

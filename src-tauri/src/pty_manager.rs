@@ -172,6 +172,38 @@ pub struct PtyManagerHandle {
     tx: mpsc::Sender<PtyRequest>,
 }
 
+/// Derive the command and arguments for a PTY session.
+/// This is the security-load-bearing logic that prevents arbitrary command
+/// execution — only known-safe commands are produced.
+pub fn derive_argv(session_type: SessionType, claude_mode: ClaudeMode, is_git_repo: bool) -> (String, Vec<String>) {
+    match session_type {
+        SessionType::Claude => {
+            let mut a: Vec<String> = Vec::new();
+            match claude_mode {
+                ClaudeMode::Auto => {
+                    a.push("--permission-mode".to_string());
+                    a.push("auto".to_string());
+                }
+                ClaudeMode::Skip => a.push("--dangerously-skip-permissions".to_string()),
+                ClaudeMode::Plan => {
+                    a.push("--permission-mode".to_string());
+                    a.push("plan".to_string());
+                }
+                ClaudeMode::Default => {}
+            }
+            if is_git_repo {
+                a.push("--worktree".to_string());
+            }
+            ("claude".to_string(), a)
+        }
+        SessionType::Terminal => {
+            let shell = std::env::var("SHELL")
+                .unwrap_or_else(|_| "/bin/sh".to_string());
+            (shell, Vec::new())
+        }
+    }
+}
+
 impl PtyManagerHandle {
     fn request(&self, build: impl FnOnce(mpsc::Sender<PtyResponse>) -> PtyRequest) -> PtyResponse {
         let (reply_tx, reply_rx) = mpsc::channel();
@@ -197,29 +229,7 @@ impl PtyManagerHandle {
         claude_mode: ClaudeMode,
         is_git_repo: bool,
     ) -> PtyResponse {
-        let (command, args) = match session_type {
-            SessionType::Claude => {
-                let mut a: Vec<String> = Vec::new();
-                match claude_mode {
-                    ClaudeMode::Auto => {
-                        a.push("--permission-mode".to_string());
-                        a.push("auto".to_string());
-                    }
-                    ClaudeMode::Skip => a.push("--dangerously-skip-permissions".to_string()),
-                    ClaudeMode::Plan => a.push("--plan".to_string()),
-                    ClaudeMode::Default => {}
-                }
-                if is_git_repo {
-                    a.push("--worktree".to_string());
-                }
-                ("claude".to_string(), a)
-            }
-            SessionType::Terminal => {
-                let shell = std::env::var("SHELL")
-                    .unwrap_or_else(|_| "/bin/sh".to_string());
-                (shell, Vec::new())
-            }
-        };
+        let (command, args) = derive_argv(session_type, claude_mode, is_git_repo);
         self.request(|reply| PtyRequest::Create {
             name,
             cwd,
@@ -1040,6 +1050,71 @@ mod tests {
 
         drop(trackers);
         handle.shutdown();
+    }
+
+    #[test]
+    fn test_derive_argv_claude_default() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, false);
+        assert_eq!(cmd, "claude");
+        assert!(args.is_empty(), "Default mode should have no args, got: {:?}", args);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_default_git() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, true);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--worktree"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_auto() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Auto, false);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--permission-mode", "auto"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_auto_git() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Auto, true);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--permission-mode", "auto", "--worktree"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_skip() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Skip, false);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--dangerously-skip-permissions"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_skip_git() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Skip, true);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--dangerously-skip-permissions", "--worktree"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_plan() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Plan, false);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--permission-mode", "plan"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_plan_git() {
+        let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Plan, true);
+        assert_eq!(cmd, "claude");
+        assert_eq!(args, vec!["--permission-mode", "plan", "--worktree"]);
+    }
+
+    #[test]
+    fn test_derive_argv_terminal() {
+        let (cmd, args) = derive_argv(SessionType::Terminal, ClaudeMode::Default, false);
+        assert!(!cmd.is_empty(), "Terminal should have a shell command");
+        assert!(args.is_empty(), "Terminal should have no args");
+        // Command should be a shell, not "claude"
+        assert_ne!(cmd, "claude");
     }
 
     #[test]

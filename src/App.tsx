@@ -87,8 +87,15 @@ export function App() {
   });
 
   const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => {
-    setIsModalOpen(false);
-    await createSession(name, cwd, sessionMode, pullLatest, isGitRepo);
+    try {
+      setIsModalOpen(false);
+      await createSession(name, cwd, sessionMode, pullLatest, isGitRepo);
+    } catch (err) {
+      addToast(
+        `Failed to create session: ${err instanceof Error ? err.message : String(err)}`,
+        "error"
+      );
+    }
   };
 
   const handleResizeMouseDown = useCallback(

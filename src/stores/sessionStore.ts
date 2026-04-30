@@ -184,8 +184,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let id: string;
     let session: SessionInfo;
 
-    // Map frontend session mode to backend enum values.
-    const claudeModeMap: Record<string, string | undefined> = {
+    // "claude" maps to undefined because the backend treats missing/unknown as Default.
+    const claudeModeMap: Record<Exclude<SessionMode, "terminal">, string | undefined> = {
       "claude": undefined,
       "claude-auto": "auto",
       "claude-skip": "skip",
@@ -238,8 +238,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         if (currentStatus && currentStatus !== "starting") {
           get().updateSessionStatus(id, currentStatus as SessionStatus);
         }
-      } catch {
-        // Session may have already been removed
+      } catch (err) {
+        // Expected if session was removed before status fetch completed.
+        // Log unexpected errors so they aren't silently swallowed.
+        if (get().sessions.has(id)) {
+          console.warn("Failed to fetch initial session status:", err);
+        }
       }
     }
   },

@@ -188,7 +188,7 @@ describe("sessionStore", () => {
       });
     });
 
-    it("does NOT pass pullLatest when false", async () => {
+    it("passes pullLatest: false to create_session", async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       vi.mocked(invoke).mockResolvedValueOnce("no-pull-id");
 
