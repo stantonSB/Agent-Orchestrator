@@ -12,6 +12,7 @@ use crate::status_parser::{SessionStatus, StatusTracker};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -46,6 +47,36 @@ fn shell_env() -> &'static HashMap<String, String> {
             })
             .unwrap_or_default()
     })
+}
+
+/// Resolve a program name to an absolute path by walking the PATH from `env`.
+///
+/// Why: Rust's `Command::spawn` on macOS falls back from `posix_spawn` to
+/// `fork+exec` when the program is given by name (no `/`) AND the env was
+/// modified to include `PATH`. The fork+exec child runs user-mode setup
+/// (env mutation, etc.) between fork and exec, which on a multi-threaded
+/// process triggers macOS's "crashed on child side of fork pre-exec"
+/// SIGABRT. Resolving to an absolute path keeps Rust on the `posix_spawn`
+/// fast path, which never runs user code in the child.
+fn resolve_program(program: &str, env: &HashMap<String, String>) -> String {
+    if program.contains('/') {
+        return program.to_string();
+    }
+    let Some(path) = env.get("PATH") else {
+        return program.to_string();
+    };
+    for dir in path.split(':') {
+        if dir.is_empty() {
+            continue;
+        }
+        let candidate = std::path::Path::new(dir).join(program);
+        if let Ok(meta) = std::fs::metadata(&candidate) {
+            if meta.is_file() && meta.permissions().mode() & 0o111 != 0 {
+                return candidate.to_string_lossy().into_owned();
+            }
+        }
+    }
+    program.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +326,11 @@ fn manager_loop(
                         }
                     };
 
-                    let mut cmd = CommandBuilder::new(&command);
+                    // Resolve the program to an absolute path so Rust's
+                    // Command::spawn uses posix_spawn instead of fork+exec.
+                    // See `resolve_program` for the full rationale.
+                    let resolved = resolve_program(&command, shell_env());
+                    let mut cmd = CommandBuilder::new(&resolved);
                     cmd.args(&args);
                     cmd.cwd(&cwd);
 
