@@ -124,6 +124,15 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     term.attachCustomKeyEventHandler((event) => {
       if (event.metaKey && event.key === "f") return false;
       if (event.key === "Escape") return false;
+
+      // Shift+Enter: send \n (newline) instead of \r (carriage return).
+      // Claude Code treats \r as "submit" and \n as "insert newline".
+      // Without this, xterm.js sends \r for both Enter and Shift+Enter.
+      if (event.shiftKey && event.key === "Enter" && event.type === "keydown") {
+        onDataRef.current?.("\n");
+        return false;
+      }
+
       return true;
     });
 
