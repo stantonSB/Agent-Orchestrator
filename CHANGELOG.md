@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1] - 2026-04-30
+
+### Fixed
+- **Shift+Enter newline behavior** — Shift+Enter now correctly inserts a newline instead of submitting input (#77)
+
+### Security
+- **IPC hardening** — Removed `command` and `args` parameters from `create_session` IPC, eliminating arbitrary command execution via a compromised webview. The backend now derives commands from `session_type` and `session_mode` enums. Folded `git_pull_main` into `create_session` as a boolean flag, removing the path-traversal vector. Added strict validation that rejects unknown values instead of silent fallback (#76)
+
 ## [1.2.0] - 2026-04-29
 
 ### Added
