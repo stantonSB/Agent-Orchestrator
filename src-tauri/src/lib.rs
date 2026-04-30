@@ -120,7 +120,6 @@ pub fn run() {
             commands::resize_session,
             commands::rename_session,
             commands::list_sessions,
-            commands::git_pull_main,
             commands::check_is_git_repo,
             commands::get_session_status,
         ])

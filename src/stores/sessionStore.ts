@@ -181,12 +181,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   createSession: async (name, cwd, sessionMode = "claude", pullLatest = false, isGitRepo = true) => {
-    if (pullLatest) {
-      await invoke("git_pull_main", { cwd });
-    }
-
     let id: string;
     let session: SessionInfo;
+
+    // Map frontend session mode to backend enum values.
+    const claudeModeMap: Record<string, string | undefined> = {
+      "claude": undefined,
+      "claude-auto": "auto",
+      "claude-skip": "skip",
+      "claude-plan": "plan",
+    };
 
     if (sessionMode === "terminal") {
       id = await invoke<string>("create_session", {
@@ -204,23 +208,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isGitRepo: false,
       };
     } else {
-      const args: string[] = [];
-      if (sessionMode === "claude-auto") {
-        args.push("--permission-mode", "auto");
-      } else if (sessionMode === "claude-skip") {
-        args.push("--dangerously-skip-permissions");
-      } else if (sessionMode === "claude-plan") {
-        args.push("--plan");
-      }
-      if (isGitRepo) {
-        args.push("--worktree");
-      }
       id = await invoke<string>("create_session", {
         name,
         cwd,
-        command: "claude",
-        args,
         sessionType: "claude",
+        sessionMode: claudeModeMap[sessionMode],
+        isGitRepo,
+        pullLatest,
       });
       session = {
         id,

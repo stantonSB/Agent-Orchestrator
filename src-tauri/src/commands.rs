@@ -33,11 +33,12 @@ pub fn create_session(
     state: State<'_, AppState>,
     name: String,
     cwd: String,
-    command: Option<String>,
-    args: Option<Vec<String>>,
     cols: Option<u16>,
     rows: Option<u16>,
     session_type: Option<String>,
+    session_mode: Option<String>,
+    is_git_repo: Option<bool>,
+    pull_latest: Option<bool>,
 ) -> Result<String, String> {
     let path = PathBuf::from(&cwd);
     if !path.exists() {
@@ -49,14 +50,24 @@ pub fn create_session(
         _ => crate::pty_manager::SessionType::Claude,
     };
 
-    let command = command.unwrap_or_else(|| {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
-    });
-    let args = args.unwrap_or_default();
+    let claude_mode = match session_mode.as_deref() {
+        Some("auto") => crate::pty_manager::ClaudeMode::Auto,
+        Some("skip") => crate::pty_manager::ClaudeMode::Skip,
+        Some("plan") => crate::pty_manager::ClaudeMode::Plan,
+        _ => crate::pty_manager::ClaudeMode::Default,
+    };
+
+    let is_git_repo = is_git_repo.unwrap_or(false);
+
+    // If requested, pull latest main before spawning the session.
+    if pull_latest.unwrap_or(false) {
+        git_pull_main_internal(&path)?;
+    }
+
     let cols = cols.unwrap_or(80);
     let rows = rows.unwrap_or(24);
 
-    match state.pty.create(name, path, command, args, cols, rows, session_type) {
+    match state.pty.create(name, path, cols, rows, session_type, claude_mode, is_git_repo) {
         PtyResponse::Created { id } => Ok(id),
         PtyResponse::Error(msg) => Err(msg),
         other => Err(format!("Unexpected response: {:?}", other)),
@@ -123,17 +134,12 @@ pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
     }
 }
 
-#[tauri::command]
-pub fn git_pull_main(cwd: String) -> Result<(), String> {
-    let path = PathBuf::from(&cwd);
-    if !path.exists() {
-        return Err(format!("Directory does not exist: {cwd}"));
-    }
-
+/// Internal helper — not exposed as an IPC command.
+fn git_pull_main_internal(path: &std::path::Path) -> Result<(), String> {
     // Checkout main branch
     let checkout = std::process::Command::new("git")
         .args(["checkout", "main"])
-        .current_dir(&path)
+        .current_dir(path)
         .output()
         .map_err(|e| format!("Failed to run git checkout: {e}"))?;
 
@@ -145,7 +151,7 @@ pub fn git_pull_main(cwd: String) -> Result<(), String> {
     // Pull latest
     let pull = std::process::Command::new("git")
         .args(["pull", "origin", "main"])
-        .current_dir(&path)
+        .current_dir(path)
         .output()
         .map_err(|e| format!("Failed to run git pull: {e}"))?;
 
