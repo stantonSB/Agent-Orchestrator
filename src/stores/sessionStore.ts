@@ -181,12 +181,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   createSession: async (name, cwd, sessionMode = "claude", pullLatest = false, isGitRepo = true) => {
-    if (pullLatest) {
-      await invoke("git_pull_main", { cwd });
-    }
-
     let id: string;
     let session: SessionInfo;
+
+    // "claude" maps to undefined because the backend treats missing/unknown as Default.
+    const claudeModeMap: Record<Exclude<SessionMode, "terminal">, string | undefined> = {
+      "claude": undefined,
+      "claude-auto": "auto",
+      "claude-skip": "skip",
+      "claude-plan": "plan",
+    };
 
     if (sessionMode === "terminal") {
       id = await invoke<string>("create_session", {
@@ -204,23 +208,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isGitRepo: false,
       };
     } else {
-      const args: string[] = [];
-      if (sessionMode === "claude-auto") {
-        args.push("--permission-mode", "auto");
-      } else if (sessionMode === "claude-skip") {
-        args.push("--dangerously-skip-permissions");
-      } else if (sessionMode === "claude-plan") {
-        args.push("--plan");
-      }
-      if (isGitRepo) {
-        args.push("--worktree");
-      }
       id = await invoke<string>("create_session", {
         name,
         cwd,
-        command: "claude",
-        args,
         sessionType: "claude",
+        sessionMode: claudeModeMap[sessionMode],
+        isGitRepo,
+        pullLatest,
       });
       session = {
         id,
@@ -244,8 +238,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         if (currentStatus && currentStatus !== "starting") {
           get().updateSessionStatus(id, currentStatus as SessionStatus);
         }
-      } catch {
-        // Session may have already been removed
+      } catch (err) {
+        // Expected if session was removed before status fetch completed.
+        // Log unexpected errors so they aren't silently swallowed.
+        if (get().sessions.has(id)) {
+          console.warn("Failed to fetch initial session status:", err);
+        }
       }
     }
   },

@@ -14,10 +14,12 @@ import {
 export interface CreateSessionArgs {
   name: string;
   cwd: string;
-  command?: string;
-  args?: string[];
   cols?: number;
   rows?: number;
+  sessionType?: string;
+  sessionMode?: string;
+  isGitRepo?: boolean;
+  pullLatest?: boolean;
 }
 
 export interface CloseSessionArgs {

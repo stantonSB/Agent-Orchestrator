@@ -44,11 +44,11 @@ fn test_create_and_list_roundtrip() {
     let id = match handle.create(
         "integration-test".into(),
         std::env::temp_dir(),
-        "echo".into(),
-        vec!["hello".into()],
         80,
         24,
-        agent_orchestrator_lib::pty_manager::SessionType::Claude,
+        agent_orchestrator_lib::pty_manager::SessionType::Terminal,
+        agent_orchestrator_lib::pty_manager::ClaudeMode::Default,
+        false,
     ) {
         PtyResponse::Created { id } => id,
         other => panic!("Expected Created, got: {:?}", other),
