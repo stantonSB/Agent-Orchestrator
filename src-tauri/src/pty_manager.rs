@@ -51,32 +51,53 @@ fn shell_env() -> &'static HashMap<String, String> {
 
 /// Resolve a program name to an absolute path by walking the PATH from `env`.
 ///
-/// Why: Rust's `Command::spawn` on macOS falls back from `posix_spawn` to
-/// `fork+exec` when the program is given by name (no `/`) AND the env was
-/// modified to include `PATH`. The fork+exec child runs user-mode setup
-/// (env mutation, etc.) between fork and exec, which on a multi-threaded
-/// process triggers macOS's "crashed on child side of fork pre-exec"
-/// SIGABRT. Resolving to an absolute path keeps Rust on the `posix_spawn`
-/// fast path, which never runs user code in the child.
-fn resolve_program(program: &str, env: &HashMap<String, String>) -> String {
+/// Why: portable-pty registers a `pre_exec` hook on the spawn `Command`
+/// (signal reset, `setsid`, `TIOCSCTTY`, fd cleanup) — see
+/// `portable_pty::unix::PtyFd::spawn_command`. Any `pre_exec` closure
+/// forces Rust's `Command::spawn` to take the `fork+exec` path; it cannot
+/// use `posix_spawn`, which has no way to run arbitrary user code in the
+/// child. In a fork+exec child, only async-signal-safe libc calls are
+/// valid before `exec`. `execvp` with a short program name internally
+/// calls `getenv("PATH")` to search PATH, and `getenv` takes libc's env
+/// lock — *not* async-signal-safe. In a multi-threaded parent this trips
+/// macOS's "crashed on child side of fork pre-exec" guard and SIGABRTs
+/// the child before `exec` runs. Passing an absolute path makes `execvp`
+/// skip PATH lookup and call `execve` directly, which is async-signal-safe.
+fn resolve_program(program: &str, env: &HashMap<String, String>) -> PathBuf {
     if program.contains('/') {
-        return program.to_string();
+        return PathBuf::from(program);
     }
     let Some(path) = env.get("PATH") else {
-        return program.to_string();
+        eprintln!(
+            "[agent-orchestrator] resolve_program: PATH missing from env; \
+             passing bare name '{program}' through (spawn may crash on macOS)"
+        );
+        return PathBuf::from(program);
     };
     for dir in path.split(':') {
         if dir.is_empty() {
             continue;
         }
         let candidate = std::path::Path::new(dir).join(program);
-        if let Ok(meta) = std::fs::metadata(&candidate) {
-            if meta.is_file() && meta.permissions().mode() & 0o111 != 0 {
-                return candidate.to_string_lossy().into_owned();
+        match std::fs::metadata(&candidate) {
+            Ok(meta) if meta.is_file() && meta.permissions().mode() & 0o111 != 0 => {
+                return candidate;
+            }
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                eprintln!(
+                    "[agent-orchestrator] resolve_program: stat failed for {}: {e}",
+                    candidate.display()
+                );
             }
         }
     }
-    program.to_string()
+    eprintln!(
+        "[agent-orchestrator] resolve_program: '{program}' not found in PATH; \
+         passing bare name through (spawn may crash on macOS)"
+    );
+    PathBuf::from(program)
 }
 
 // ---------------------------------------------------------------------------
@@ -625,6 +646,111 @@ fn manager_loop(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod resolve_program_tests {
+    use super::*;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn make_env(path: Option<&str>) -> HashMap<String, String> {
+        let mut env = HashMap::new();
+        if let Some(p) = path {
+            env.insert("PATH".to_string(), p.to_string());
+        }
+        env
+    }
+
+    fn write_executable(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    fn write_nonexec(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, "data").unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    #[test]
+    fn absolute_path_returned_unchanged() {
+        let env = make_env(Some("/usr/bin"));
+        let resolved = resolve_program("/some/where/claude", &env);
+        assert_eq!(resolved, PathBuf::from("/some/where/claude"));
+    }
+
+    #[test]
+    fn relative_path_with_slash_returned_unchanged() {
+        let env = make_env(Some("/usr/bin"));
+        let resolved = resolve_program("./bin/claude", &env);
+        assert_eq!(resolved, PathBuf::from("./bin/claude"));
+    }
+
+    #[test]
+    fn missing_path_falls_back_to_bare_name() {
+        let env = make_env(None);
+        let resolved = resolve_program("claude", &env);
+        assert_eq!(resolved, PathBuf::from("claude"));
+    }
+
+    #[test]
+    fn finds_executable_in_path() {
+        let dir = TempDir::new().unwrap();
+        write_executable(dir.path(), "claude");
+        let env = make_env(Some(dir.path().to_str().unwrap()));
+        let resolved = resolve_program("claude", &env);
+        assert_eq!(resolved, dir.path().join("claude"));
+    }
+
+    #[test]
+    fn skips_non_executable_match() {
+        let dir1 = TempDir::new().unwrap();
+        let dir2 = TempDir::new().unwrap();
+        write_nonexec(dir1.path(), "claude");
+        write_executable(dir2.path(), "claude");
+        let path_str = format!("{}:{}", dir1.path().display(), dir2.path().display());
+        let env = make_env(Some(&path_str));
+        let resolved = resolve_program("claude", &env);
+        assert_eq!(resolved, dir2.path().join("claude"));
+    }
+
+    #[test]
+    fn first_match_wins() {
+        let dir1 = TempDir::new().unwrap();
+        let dir2 = TempDir::new().unwrap();
+        write_executable(dir1.path(), "claude");
+        write_executable(dir2.path(), "claude");
+        let path_str = format!("{}:{}", dir1.path().display(), dir2.path().display());
+        let env = make_env(Some(&path_str));
+        let resolved = resolve_program("claude", &env);
+        assert_eq!(resolved, dir1.path().join("claude"));
+    }
+
+    #[test]
+    fn empty_path_components_skipped() {
+        let dir = TempDir::new().unwrap();
+        write_executable(dir.path(), "claude");
+        let path_str = format!(":{}::", dir.path().display());
+        let env = make_env(Some(&path_str));
+        let resolved = resolve_program("claude", &env);
+        assert_eq!(resolved, dir.path().join("claude"));
+    }
+
+    #[test]
+    fn not_found_returns_bare_name() {
+        let dir = TempDir::new().unwrap();
+        let env = make_env(Some(dir.path().to_str().unwrap()));
+        let resolved = resolve_program("nonexistent-binary-xyz", &env);
+        assert_eq!(resolved, PathBuf::from("nonexistent-binary-xyz"));
+    }
+}
 
 #[cfg(test)]
 mod tests {
