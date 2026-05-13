@@ -147,55 +147,54 @@ pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
 fn git_pull_main_internal(path: &std::path::Path) -> Result<(), String> {
     let display_path = path.display();
 
-    // Capture original branch so we can restore on failure.
-    let original_branch = std::process::Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                format!("git is not installed or not in PATH (needed for {display_path})")
-            } else {
-                format!("Failed to run git in {display_path}: {e}")
-            }
-        })?;
+    let run_git = |args: &[&str]| -> Result<std::process::Output, String> {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(path)
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    format!("git is not installed or not in PATH (needed for {display_path})")
+                } else {
+                    format!("Failed to run git {} in {display_path}: {e}", args.join(" "))
+                }
+            })
+    };
 
+    // Detect the remote's default branch (main, master, etc.).
+    let default_branch = run_git(&["symbolic-ref", "refs/remotes/origin/HEAD", "--short"])
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                s.strip_prefix("origin/").map(|b| b.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "main".to_string());
+
+    // Capture original branch so we can restore on failure.
+    let original_branch = run_git(&["rev-parse", "--abbrev-ref", "HEAD"])?;
     let original_branch = String::from_utf8_lossy(&original_branch.stdout).trim().to_string();
 
-    let checkout = std::process::Command::new("git")
-        .args(["checkout", "main"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                format!("git is not installed or not in PATH (needed for {display_path})")
-            } else {
-                format!("Failed to run git checkout in {display_path}: {e}")
-            }
-        })?;
+    let checkout = run_git(&["checkout", &default_branch])?;
 
     if !checkout.status.success() {
         let stderr = String::from_utf8_lossy(&checkout.stderr);
-        return Err(format!("git checkout main failed in {display_path}: {stderr}"));
+        return Err(format!("git checkout {default_branch} failed in {display_path}: {stderr}"));
     }
 
-    let pull = std::process::Command::new("git")
-        .args(["pull", "origin", "main"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| format!("Failed to run git pull in {display_path}: {e}"))?;
+    let pull = run_git(&["pull", "origin", &default_branch])?;
 
     if !pull.status.success() {
         let stderr = String::from_utf8_lossy(&pull.stderr);
         // Attempt to restore the original branch since checkout succeeded but pull failed.
-        if !original_branch.is_empty() && original_branch != "main" {
-            let _ = std::process::Command::new("git")
-                .args(["checkout", &original_branch])
-                .current_dir(path)
-                .output();
+        if !original_branch.is_empty() && original_branch != default_branch {
+            let _ = run_git(&["checkout", &original_branch]);
         }
         return Err(format!(
-            "git pull origin main failed in {display_path}: {stderr}"
+            "git pull origin {default_branch} failed in {display_path}: {stderr}"
         ));
     }
 
