@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.2] - 2026-05-13
+
+### Fixed
+- **Remote default branch detection** — `git pull` now detects the remote's default branch instead of hardcoding "main", fixing issues for repos with different default branch names (#80)
+- **VSCode file link support** — Cmd+clicking file paths in the terminal now opens them in VSCode with correct line and column position
+
 ## [1.2.1] - 2026-04-30
 
 ### Fixed
