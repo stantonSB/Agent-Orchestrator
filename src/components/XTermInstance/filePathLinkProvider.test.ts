@@ -171,7 +171,7 @@ describe("FilePathLinkProvider", () => {
           const event = { metaKey: true } as MouseEvent;
           links![0].activate(event, links![0].text);
           expect(openUrl).toHaveBeenCalledWith(
-            "file:///Users/test/project/src/file.ts",
+            "vscode://file/Users/test/project/src/file.ts",
           );
           resolve();
         });
@@ -207,7 +207,7 @@ describe("FilePathLinkProvider", () => {
           const event = { metaKey: true } as MouseEvent;
           links![0].activate(event, links![0].text);
           expect(openUrl).toHaveBeenCalledWith(
-            "file:///project/src/file.ts",
+            "vscode://file/project/src/file.ts:42:10",
           );
           resolve();
         });
@@ -228,7 +228,7 @@ describe("FilePathLinkProvider", () => {
           const event = { metaKey: true } as MouseEvent;
           links![0].activate(event, links![0].text);
           expect(openUrl).toHaveBeenCalledWith(
-            "file:///Users/stanton/project/file.ts",
+            "vscode://file/Users/stanton/project/file.ts",
           );
           resolve();
         });

@@ -62,6 +62,7 @@ export class FilePathLinkProvider implements ILinkProvider {
   }
 
   private openFilePath(pathWithLineCol: string): void {
+    const lineColMatch = pathWithLineCol.match(/:(\d+)(?::(\d+))?$/);
     const filePath = pathWithLineCol.replace(/:[\d]+(?::[\d]+)?$/, "");
 
     let absolutePath: string;
@@ -76,7 +77,15 @@ export class FilePathLinkProvider implements ILinkProvider {
       }
     }
 
-    openUrl(`file://${absolutePath}`).catch(() => {
+    let vscodeUrl = `vscode://file${absolutePath}`;
+    if (lineColMatch) {
+      vscodeUrl += `:${lineColMatch[1]}`;
+      if (lineColMatch[2]) {
+        vscodeUrl += `:${lineColMatch[2]}`;
+      }
+    }
+
+    openUrl(vscodeUrl).catch(() => {
       useSessionStore
         .getState()
         .addToast(`Could not open file: ${filePath}`, "error");
