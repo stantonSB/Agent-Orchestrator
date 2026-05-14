@@ -18,6 +18,12 @@ use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Capture the user's login-shell environment early, before the Tauri
+    // runtime spawns its threads.  The capture itself does fork+exec, so
+    // running it now (while the process is still mostly single-threaded)
+    // avoids the macOS "multi-threaded process forked" crash.
+    pty_manager::warm_shell_env();
+
     tauri::Builder::default()
         .setup(|app| {
             let handle_for_output = app.handle().clone();
