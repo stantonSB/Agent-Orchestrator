@@ -27,6 +27,16 @@ use std::time::Instant;
 /// This runs `$SHELL -li -c env` once, parses the output, and caches it
 /// for the lifetime of the process. If it fails for any reason, we fall
 /// back to the process's own (minimal) environment.
+/// Eagerly initialise the cached login-shell environment.
+///
+/// Call this once during startup — before the PTY manager thread and other
+/// background threads are created — so that the internal `fork+exec` of
+/// `$SHELL -li -c env` runs while the process has the fewest threads.  This
+/// reduces the window for the macOS "multi-threaded process forked" crash.
+pub fn warm_shell_env() {
+    let _ = shell_env();
+}
+
 fn shell_env() -> &'static HashMap<String, String> {
     static ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
     ENV.get_or_init(|| {
@@ -172,6 +182,40 @@ pub struct PtyManagerHandle {
     tx: mpsc::Sender<PtyRequest>,
 }
 
+/// Resolve `claude` to its absolute path via the captured login-shell
+/// environment's PATH.  Using an absolute path prevents `portable-pty`'s
+/// `CommandBuilder::search_path` from matching a *directory* named `claude`
+/// inside the session's cwd (it checks `cwd.join(exe).exists()` before
+/// consulting PATH, and `.exists()` is true for directories).
+fn resolve_claude_path() -> String {
+    // Check the login-shell PATH first (covers .app launched from Finder).
+    if let Some(path_val) = shell_env().get("PATH") {
+        for dir in std::env::split_paths(&std::ffi::OsString::from(path_val)) {
+            let candidate = dir.join("claude");
+            if candidate.is_file() {
+                if let Some(s) = candidate.to_str() {
+                    return s.to_string();
+                }
+            }
+        }
+    }
+
+    // Fall back to the process's own PATH.
+    if let Ok(path_val) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&std::ffi::OsString::from(&path_val)) {
+            let candidate = dir.join("claude");
+            if candidate.is_file() {
+                if let Some(s) = candidate.to_str() {
+                    return s.to_string();
+                }
+            }
+        }
+    }
+
+    // Last resort — let the OS figure it out.
+    "claude".to_string()
+}
+
 /// Derive the command and arguments for a PTY session.
 /// This is the security-load-bearing logic that prevents arbitrary command
 /// execution — only known-safe commands are produced.
@@ -194,7 +238,7 @@ pub fn derive_argv(session_type: SessionType, claude_mode: ClaudeMode, is_git_re
             if is_git_repo {
                 a.push("--worktree".to_string());
             }
-            ("claude".to_string(), a)
+            (resolve_claude_path(), a)
         }
         SessionType::Terminal => {
             let shell = std::env::var("SHELL")
@@ -1055,57 +1099,67 @@ mod tests {
     #[test]
     fn test_derive_argv_claude_default() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, false);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert!(args.is_empty(), "Default mode should have no args, got: {:?}", args);
     }
 
     #[test]
     fn test_derive_argv_claude_default_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, true);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--worktree"]);
     }
 
     #[test]
     fn test_derive_argv_claude_auto() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Auto, false);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--permission-mode", "auto"]);
     }
 
     #[test]
     fn test_derive_argv_claude_auto_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Auto, true);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--permission-mode", "auto", "--worktree"]);
     }
 
     #[test]
     fn test_derive_argv_claude_skip() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Skip, false);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--dangerously-skip-permissions"]);
     }
 
     #[test]
     fn test_derive_argv_claude_skip_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Skip, true);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--dangerously-skip-permissions", "--worktree"]);
     }
 
     #[test]
     fn test_derive_argv_claude_plan() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Plan, false);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--permission-mode", "plan"]);
     }
 
     #[test]
     fn test_derive_argv_claude_plan_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Plan, true);
-        assert_eq!(cmd, "claude");
+        assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
         assert_eq!(args, vec!["--permission-mode", "plan", "--worktree"]);
+    }
+
+    #[test]
+    fn test_derive_argv_claude_resolves_absolute_path() {
+        let (cmd, _args) = derive_argv(SessionType::Claude, ClaudeMode::Default, false);
+        // Should resolve to an absolute path when claude is installed
+        if cmd != "claude" {
+            assert!(cmd.starts_with('/'), "Resolved path should be absolute, got: {cmd}");
+            assert!(std::path::Path::new(&cmd).is_file(), "Resolved path should be an existing file: {cmd}");
+        }
     }
 
     #[test]
