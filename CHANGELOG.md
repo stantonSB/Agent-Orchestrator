@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.3] - 2026-05-14
+
+### Fixed
+- **Claude path resolution** — Resolve `claude` to an absolute path to prevent directory name collisions when a project folder is named "claude" (#82)
+- **Project path tooltip** — Show full project directory path on hover in the new session modal for better disambiguation (#81)
+
 ## [1.2.2] - 2026-05-13
 
 ### Fixed
