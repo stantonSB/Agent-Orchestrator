@@ -126,6 +126,7 @@ export function NewSessionModal({
           <div className={styles.folderRow}>
             <div
               className={`${styles.folderPath} ${directory ? styles.hasValue : ""}`}
+              title={directory ?? undefined}
             >
               {directory ?? "No directory selected"}
             </div>
