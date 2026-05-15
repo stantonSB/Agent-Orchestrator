@@ -42,6 +42,7 @@
 .statusFinished { background-color: #6b7280; }
 .statusError { background-color: #ef4444; }
 .statusTerminal { background-color: #6b7280; }
+.statusExited { background-color: #6b7280; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
