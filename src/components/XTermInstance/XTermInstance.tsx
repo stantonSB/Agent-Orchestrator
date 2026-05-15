@@ -18,6 +18,7 @@ export interface XTermInstanceHandle {
   findPrevious: (query: string) => boolean;
   clearSearch: () => void;
   focus: () => void;
+  getScrollbackText: (lines: number) => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,8 @@ interface XTermInstanceProps {
   mockMode?: boolean;
   /** Whether this terminal is the visible / active one. */
   isActive: boolean;
+  /** If true, suppress user input (for persisted/read-only sessions). */
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,10 +46,10 @@ interface XTermInstanceProps {
 // ---------------------------------------------------------------------------
 
 export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>(
-  function XTermInstance({ sessionId: _sessionId, cwd, onData, onResize, mockMode, isActive }, ref) {
+  function XTermInstance({ sessionId: _sessionId, cwd, onData, onResize, mockMode, isActive, readOnly }, ref) {
     const { containerRef, write, fit, getTerminal, findNext, findPrevious, clearSearch } = useTerminal({
-      onData,
-      onResize,
+      onData: readOnly ? undefined : onData,
+      onResize: readOnly ? undefined : onResize,
       mockMode,
       cwd,
     });
@@ -59,6 +62,21 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
       findPrevious,
       clearSearch,
       focus: () => getTerminal()?.focus(),
+      getScrollbackText: (lines: number) => {
+        const term = getTerminal();
+        if (!term) return "";
+        const buffer = term.buffer.active;
+        const totalLines = buffer.length;
+        const startLine = Math.max(0, totalLines - lines);
+        const result: string[] = [];
+        for (let i = startLine; i < totalLines; i++) {
+          const line = buffer.getLine(i);
+          if (line) {
+            result.push(line.translateToString(true));
+          }
+        }
+        return result.join("\n");
+      },
     }), [write, fit, findNext, findPrevious, clearSearch, getTerminal]);
 
     // Re-fit whenever this instance becomes active (the container may have

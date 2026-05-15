@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod hook_installer;
+pub mod persistence;
 pub mod pty_manager;
 pub mod state;
 pub mod status_parser;
@@ -109,10 +110,16 @@ pub fn run() {
                 status_port,
             );
 
+            let persistence_dir = app.path().app_data_dir()
+                .expect("failed to resolve app data dir")
+                .join("persistence");
+
             app.manage(AppState {
                 pty: pty_handle,
                 status_server,
                 status_trackers: status_trackers_for_state,
+                persistence_dir,
+                persistence_lock: Mutex::new(()),
             });
 
             Ok(())
@@ -128,15 +135,23 @@ pub fn run() {
             commands::list_sessions,
             commands::check_is_git_repo,
             commands::get_session_status,
+            commands::save_sessions,
+            commands::save_single_session,
+            commands::list_persisted_sessions,
+            commands::get_session_scrollback,
+            commands::delete_persisted_session,
         ])
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                if let Some(state) = window.try_state::<AppState>() {
+        .on_window_event(|_window, _event| {
+            // Shutdown moved to RunEvent::Exit to allow frontend save-on-close
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
                     state.pty.shutdown();
                     state.status_server.stop();
                 }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        });
 }

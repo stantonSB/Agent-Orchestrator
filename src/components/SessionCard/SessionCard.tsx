@@ -24,6 +24,7 @@ const STATUS_DOT_CLASS: Record<SessionStatus, string> = {
   finished: styles.statusFinished,
   error: styles.statusError,
   terminal: styles.statusTerminal,
+  exited: styles.statusExited,
 };
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
@@ -34,10 +35,11 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   finished: "Finished",
   error: "Error",
   terminal: "Terminal",
+  exited: "Exited",
 };
 
 function isRunning(status: SessionStatus): boolean {
-  return status !== "finished" && status !== "error";
+  return status !== "finished" && status !== "error" && status !== "exited";
 }
 
 export function SessionCard({ session, isActive, onClick, onClose, onDismiss, onRename }: SessionCardProps) {

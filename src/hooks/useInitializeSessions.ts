@@ -6,6 +6,7 @@ import type { SessionInfo } from "../types/session";
 export function useInitializeSessions() {
   const addSession = useSessionStore((s) => s.addSession);
   const setupEventListeners = useSessionStore((s) => s.setupEventListeners);
+  const loadPersistedSessions = useSessionStore((s) => s.loadPersistedSessions);
 
   useEffect(() => {
     async function init() {
@@ -16,6 +17,7 @@ export function useInitializeSessions() {
           cwd: string;
           created_at_epoch_ms: number;
           session_type: string;
+          is_git_repo: boolean;
         }>>("list_sessions");
         for (const raw of existing) {
           const sessionType = raw.session_type === "terminal" ? "terminal" as const : "claude" as const;
@@ -26,11 +28,14 @@ export function useInitializeSessions() {
             createdAt: raw.created_at_epoch_ms,
             status: sessionType === "terminal" ? "terminal" : "idle",
             sessionType,
-            isGitRepo: true,
+            isGitRepo: raw.is_git_repo,
           };
           addSession(session);
           setupEventListeners(session.id);
         }
+
+        // Load persisted sessions after live ones (live wins on ID conflict)
+        await loadPersistedSessions();
       } catch (err) {
         console.error("Failed to initialize sessions:", err);
       }

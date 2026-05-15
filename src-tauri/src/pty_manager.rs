@@ -63,7 +63,8 @@ fn shell_env() -> &'static HashMap<String, String> {
 // ---------------------------------------------------------------------------
 
 /// Whether this session runs Claude Code or a plain shell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SessionType {
     Claude,
     Terminal,
@@ -98,6 +99,7 @@ pub enum PtyRequest {
         command: String,
         args: Vec<String>,
         session_type: SessionType,
+        is_git_repo: bool,
         cols: u16,
         rows: u16,
         reply: mpsc::Sender<PtyResponse>,
@@ -146,8 +148,9 @@ pub struct SessionListEntry {
     pub id: SessionId,
     pub name: String,
     pub cwd: PathBuf,
-    pub created_at_epoch_ms: u128,
-    pub session_type: String,
+    pub created_at_epoch_ms: u64,
+    pub session_type: SessionType,
+    pub is_git_repo: bool,
 }
 
 pub type OutputCallback = Box<dyn Fn(SessionId, Vec<u8>) + Send + Sync + 'static>;
@@ -165,11 +168,12 @@ struct Session {
     #[allow(dead_code)]
     cwd: PathBuf,
     session_type: SessionType,
+    is_git_repo: bool,
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn std::io::Write + Send>,
     #[allow(dead_code)]
     created_at: Instant,
-    created_at_epoch_ms: u128,
+    created_at_epoch_ms: u64,
     _reader_handle: thread::JoinHandle<()>,
 }
 
@@ -280,6 +284,7 @@ impl PtyManagerHandle {
             command,
             args,
             session_type,
+            is_git_repo,
             cols,
             rows,
             reply,
@@ -306,6 +311,7 @@ impl PtyManagerHandle {
             command,
             args,
             session_type,
+            is_git_repo: false,
             cols,
             rows,
             reply,
@@ -389,6 +395,7 @@ fn manager_loop(
                     command,
                     args,
                     session_type,
+                    is_git_repo,
                     cols,
                     rows,
                     reply,
@@ -561,7 +568,7 @@ fn manager_loop(
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
-                        .as_millis();
+                        .as_millis() as u64;
 
                     sessions.insert(
                         id.clone(),
@@ -570,6 +577,7 @@ fn manager_loop(
                             name,
                             cwd,
                             session_type,
+                            is_git_repo,
                             master: pair.master,
                             writer,
                             created_at: Instant::now(),
@@ -674,7 +682,8 @@ fn manager_loop(
                             name: s.name.clone(),
                             cwd: s.cwd.clone(),
                             created_at_epoch_ms: s.created_at_epoch_ms,
-                            session_type: s.session_type.as_str().to_string(),
+                            session_type: s.session_type,
+                            is_git_repo: s.is_git_repo,
                         })
                         .collect();
                     let _ = reply.send(PtyResponse::Sessions(entries));
@@ -1192,7 +1201,7 @@ mod tests {
         match resp {
             PtyResponse::Sessions(entries) => {
                 let entry = entries.iter().find(|e| e.id == id).unwrap();
-                assert_eq!(entry.session_type, "terminal");
+                assert_eq!(entry.session_type, SessionType::Terminal);
             }
             other => panic!("Expected Sessions, got: {:?}", other),
         }

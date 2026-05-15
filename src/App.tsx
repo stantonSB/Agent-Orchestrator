@@ -10,11 +10,13 @@ import { TerminalArea } from "./components/TerminalArea/TerminalArea";
 import { ToastContainer } from "./components/ToastContainer/ToastContainer";
 import { CloseConfirmDialog } from "./components/CloseConfirmDialog/CloseConfirmDialog";
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
+import { useSaveOnClose } from "./hooks/useSaveOnClose";
 import { useGlobalKeybindings } from "./hooks/useGlobalKeybindings";
 import styles from "./App.module.css";
 
 export function App() {
   useInitializeSessions();
+  useSaveOnClose();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const addToast = useSessionStore((s) => s.addToast);
 
@@ -38,7 +40,7 @@ export function App() {
 
   const activeSession = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const activeIsRunning = activeSession
-    ? activeSession.status !== "finished" && activeSession.status !== "error"
+    ? activeSession.status !== "finished" && activeSession.status !== "error" && activeSession.status !== "exited"
     : false;
 
   const handleNewSession = useCallback(() => {
