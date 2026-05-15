@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::State;
 
-use crate::pty_manager::{PtyResponse, SessionListEntry};
+use crate::pty_manager::{self, PtyResponse, SessionListEntry};
 use crate::state::AppState;
 
 /// Serializable session info returned to the frontend.
@@ -12,8 +12,9 @@ pub struct SessionInfo {
     pub id: String,
     pub name: String,
     pub cwd: PathBuf,
-    pub created_at_epoch_ms: u128,
+    pub created_at_epoch_ms: u64,
     pub session_type: String,
+    pub is_git_repo: bool,
 }
 
 impl From<SessionListEntry> for SessionInfo {
@@ -23,7 +24,11 @@ impl From<SessionListEntry> for SessionInfo {
             name: e.name,
             cwd: e.cwd,
             created_at_epoch_ms: e.created_at_epoch_ms,
-            session_type: e.session_type,
+            session_type: match e.session_type {
+                pty_manager::SessionType::Claude => "claude".to_string(),
+                pty_manager::SessionType::Terminal => "terminal".to_string(),
+            },
+            is_git_repo: e.is_git_repo,
         }
     }
 }
