@@ -31,6 +31,10 @@ interface SessionState {
   addToast: (message: string, type: ToastData["type"]) => void;
   dismissToast: (id: string) => void;
 
+  // Persistence
+  loadPersistedSessions: () => Promise<void>;
+  loadScrollback: (sessionId: string) => Promise<void>;
+
   // Event listener management
   setupEventListeners: (sessionId: string, sessionMode?: SessionMode) => void;
 }
@@ -160,6 +164,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   dismissSession: (id) => {
+    const session = get().sessions.get(id);
+    if (session?.persisted) {
+      // Delete from disk (fire-and-forget)
+      invoke("delete_persisted_session", { sessionId: id }).catch((err) => {
+        console.error("Failed to delete persisted session:", err);
+      });
+    }
     cancelSubagentCleanup(id);
     set((state) => {
       const next = new Map(state.sessions);
@@ -249,6 +260,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   closeSession: async (id) => {
+    const session = get().sessions.get(id);
+    if (session?.persisted) {
+      try {
+        await invoke("delete_persisted_session", { sessionId: id });
+      } catch (err) {
+        console.error("Failed to delete persisted session:", err);
+      }
+      get().removeSession(id);
+      return;
+    }
     await invoke("close_session", { id });
     get().removeSession(id);
   },
@@ -262,6 +283,62 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       next.set(id, { ...session, name });
       return { sessions: next };
     });
+  },
+
+  loadPersistedSessions: async () => {
+    try {
+      const persisted = await invoke<Array<{
+        id: string;
+        name: string;
+        cwd: string;
+        session_type: string;
+        is_git_repo: boolean;
+        created_at_epoch_ms: number;
+        status_at_close: string;
+      }>>("list_persisted_sessions");
+
+      const { sessions, addSession } = get();
+
+      for (const raw of persisted) {
+        if (sessions.has(raw.id)) continue;
+
+        const sessionType = raw.session_type === "terminal" ? "terminal" as const : "claude" as const;
+        const session: SessionInfo = {
+          id: raw.id,
+          name: raw.name,
+          cwd: raw.cwd,
+          createdAt: raw.created_at_epoch_ms,
+          status: "exited",
+          sessionType,
+          isGitRepo: raw.is_git_repo,
+          persisted: true,
+        };
+        addSession(session);
+      }
+    } catch (err) {
+      console.error("Failed to load persisted sessions:", err);
+    }
+  },
+
+  loadScrollback: async (sessionId) => {
+    const session = get().sessions.get(sessionId);
+    if (!session || session.scrollbackText !== undefined) return;
+
+    try {
+      const text = await invoke<string | null>("get_session_scrollback", { sessionId });
+      if (text !== null) {
+        set((state) => {
+          const sessions = new Map(state.sessions);
+          const s = sessions.get(sessionId);
+          if (s) {
+            sessions.set(sessionId, { ...s, scrollbackText: text });
+          }
+          return { sessions };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load scrollback:", err);
+    }
   },
 
   setupEventListeners: (sessionId, sessionMode) => {
@@ -300,6 +377,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               );
             }
           }
+        }
+
+        // Persist session on exit (fire-and-forget)
+        const exitedSession = get().sessions.get(sessionId);
+        if (exitedSession && !exitedSession.persisted) {
+          setTimeout(async () => {
+            try {
+              const scrollback = (window as any).__aoGetScrollback?.(sessionId) ?? "";
+              await invoke("save_single_session", {
+                session: {
+                  id: exitedSession.id,
+                  name: exitedSession.name,
+                  cwd: exitedSession.cwd,
+                  session_type: exitedSession.sessionType,
+                  is_git_repo: exitedSession.isGitRepo,
+                  created_at_epoch_ms: exitedSession.createdAt,
+                  status_at_close: get().sessions.get(sessionId)?.status ?? exitedSession.status,
+                },
+                scrollback,
+              });
+            } catch (err) {
+              console.error(`Failed to persist session ${sessionId} on exit:`, err);
+            }
+          }, 500);
         }
       })
     );
