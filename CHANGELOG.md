@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0] - 2026-05-15
+
+### Added
+- **Session persistence** — Sessions are automatically saved when the app closes and restored on startup, preserving terminal scrollback, session names, and project context across restarts (#85)
+- **Exited session status** — Sessions that were restored from a previous app session display an "exited" status with distinct styling, and terminals are set to read-only mode
+- **Scrollback text capture** — Added ability to extract terminal scrollback content for persistence via `getScrollbackText`
+
+### Fixed
+- **Missing search dependency** — Installed the missing `@xterm/addon-search` package
+
+### Changed
+- **Session `created_at` field** — Migrated `created_at_epoch_ms` from `i64` to `u64` and added `is_git_repo` to the session list response
+
 ## [1.2.3] - 2026-05-14
 
 ### Fixed
