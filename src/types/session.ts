@@ -5,7 +5,8 @@ export type SessionStatus =
   | "needs_attention"
   | "finished"
   | "error"
-  | "terminal";
+  | "terminal"
+  | "exited";
 
 export type SessionMode = "claude-auto" | "claude" | "claude-skip" | "claude-plan" | "terminal";
 
@@ -17,6 +18,8 @@ export interface SessionInfo {
   cwd: string; // working directory path
   sessionType: "claude" | "terminal";
   isGitRepo: boolean;
+  persisted?: boolean;
+  scrollbackText?: string;
 }
 
 export interface SubagentStatus {
