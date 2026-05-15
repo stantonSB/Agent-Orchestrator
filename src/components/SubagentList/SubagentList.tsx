@@ -14,6 +14,7 @@ const DOT_CLASS: Record<SessionStatus, string> = {
   finished: styles.statusFinished,
   error: styles.statusError,
   terminal: styles.statusIdle,
+  exited: styles.statusIdle,
 };
 
 function isRunning(status: SessionStatus): boolean {

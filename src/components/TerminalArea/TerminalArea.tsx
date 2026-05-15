@@ -11,6 +11,7 @@ import {
   resizeSession,
 } from "../../lib/tauri-ipc";
 import type { SessionExitPayload } from "../../types/tauri-events";
+import { useSessionStore } from "../../stores/sessionStore";
 import styles from "./TerminalArea.module.css";
 
 // ---------------------------------------------------------------------------
@@ -149,6 +150,47 @@ export function TerminalArea({
       outputBuffers.current.clear();
     };
   }, []);
+
+  // Register global functions for the store to access scrollback
+  useEffect(() => {
+    (window as any).__aoGetScrollback = (sessionId: string): string => {
+      const handle = refsMap.current.get(sessionId);
+      return handle?.getScrollbackText(500) ?? "";
+    };
+    (window as any).__aoGetAllScrollbacks = (): Record<string, string> => {
+      const result: Record<string, string> = {};
+      for (const [id, handle] of refsMap.current) {
+        result[id] = handle.getScrollbackText(500);
+      }
+      return result;
+    };
+    return () => {
+      delete (window as any).__aoGetScrollback;
+      delete (window as any).__aoGetAllScrollbacks;
+    };
+  }, []);
+
+  // Load scrollback for persisted sessions when they become active
+  const loadScrollback = useSessionStore((s) => s.loadScrollback);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const session = sessions.find(s => s.id === activeSessionId);
+    if (!session?.persisted) return;
+
+    const doLoad = async () => {
+      await loadScrollback(activeSessionId);
+      const updated = useSessionStore.getState().sessions.get(activeSessionId);
+      if (updated?.scrollbackText) {
+        const handle = refsMap.current.get(activeSessionId);
+        if (handle) {
+          handle.write(updated.scrollbackText);
+        }
+      }
+    };
+
+    doLoad();
+  }, [activeSessionId, sessions, loadScrollback]);
 
   // Forward user keystrokes to PTY via IPC.
   const handleSessionData = useCallback(
