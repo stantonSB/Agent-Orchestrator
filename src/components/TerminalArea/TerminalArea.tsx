@@ -21,6 +21,7 @@ export interface TerminalSession {
   id: string;
   name: string;
   cwd: string;
+  persisted?: boolean;
 }
 
 interface TerminalAreaProps {
@@ -76,6 +77,8 @@ export function TerminalArea({
     for (const session of sessions) {
       const sid = session.id;
       if (outputListeners.current.has(sid)) continue;
+      // Skip PTY listeners for persisted (read-only) sessions
+      if (session.persisted) continue;
 
       const promise = onSessionOutput(sid, (payload) => {
         if (!payload.data) return;
@@ -101,6 +104,8 @@ export function TerminalArea({
     for (const session of sessions) {
       const sid = session.id;
       if (exitListeners.current.has(sid)) continue;
+      // Skip PTY listeners for persisted (read-only) sessions
+      if (session.persisted) continue;
 
       const promise = onSessionExit(sid, (payload) => {
         onSessionExitRef.current?.(sid, payload);
@@ -260,6 +265,7 @@ export function TerminalArea({
             cwd={session.cwd}
             isActive={session.id === activeSessionId}
             mockMode={mockMode}
+            readOnly={session.persisted}
             onData={(data) => handleSessionData(session.id, data)}
             onResize={(cols, rows) =>
               handleSessionResize(session.id, cols, rows)
