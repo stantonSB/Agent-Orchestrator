@@ -1201,7 +1201,7 @@ mod tests {
         match resp {
             PtyResponse::Sessions(entries) => {
                 let entry = entries.iter().find(|e| e.id == id).unwrap();
-                assert_eq!(entry.session_type, "terminal");
+                assert_eq!(entry.session_type, SessionType::Terminal);
             }
             other => panic!("Expected Sessions, got: {:?}", other),
         }
