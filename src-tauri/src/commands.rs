@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -238,4 +239,57 @@ pub fn check_is_git_repo(cwd: String) -> Result<bool, String> {
         })?;
 
     Ok(output.status.success())
+}
+
+// ---------------------------------------------------------------------------
+// Persistence IPC commands
+// ---------------------------------------------------------------------------
+
+use crate::persistence::{self, PersistedSession};
+
+#[tauri::command]
+pub fn save_sessions(
+    state: State<'_, AppState>,
+    sessions: Vec<PersistedSession>,
+    scrollbacks: HashMap<String, String>,
+) -> Result<(), String> {
+    let _lock = state.persistence_lock.lock().unwrap();
+    persistence::save_sessions(&state.persistence_dir, &sessions, &scrollbacks)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_single_session(
+    state: State<'_, AppState>,
+    session: PersistedSession,
+    scrollback: String,
+) -> Result<(), String> {
+    let _lock = state.persistence_lock.lock().unwrap();
+    persistence::save_single_session(&state.persistence_dir, &session, &scrollback)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_persisted_sessions(
+    state: State<'_, AppState>,
+) -> Vec<PersistedSession> {
+    persistence::load_sessions(&state.persistence_dir)
+}
+
+#[tauri::command]
+pub fn get_session_scrollback(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Option<String> {
+    persistence::load_scrollback(&state.persistence_dir, &session_id)
+}
+
+#[tauri::command]
+pub fn delete_persisted_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let _lock = state.persistence_lock.lock().unwrap();
+    persistence::delete_session(&state.persistence_dir, &session_id)
+        .map_err(|e| e.to_string())
 }
