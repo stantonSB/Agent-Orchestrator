@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.0] - 2026-05-19
+
+### Changed
+- **macOS code signing & notarization** — App is now signed with an Apple Developer ID certificate and notarized, eliminating Gatekeeper warnings on first launch
+
 ## [1.3.0] - 2026-05-15
 
 ### Added
