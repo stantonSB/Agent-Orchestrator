@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.1] - 2026-05-21
+
+### Fixed
+- **Escape key in terminal sessions** — ESC keypresses now pass through to the PTY, fixing navigation in Claude Code settings screens (e.g. `/mcp`). The search bar close-on-ESC continues to work via its own DOM-level handlers.
+
 ## [1.4.0] - 2026-05-19
 
 ### Changed
