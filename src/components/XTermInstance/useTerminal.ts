@@ -123,7 +123,6 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     // Intercept Cmd+F so it doesn't get sent to the PTY
     term.attachCustomKeyEventHandler((event) => {
       if (event.metaKey && event.key === "f") return false;
-      if (event.key === "Escape") return false;
 
       // Shift+Enter: send \n (newline) instead of \r (carriage return).
       // Claude Code treats \r as "submit" and \n as "insert newline".
