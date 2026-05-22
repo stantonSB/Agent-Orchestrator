@@ -33,3 +33,6 @@ src-tauri/target/
 .env
 .env.local
 .env.*.local
+
+# Apple API keys
+AuthKey_*.p8

@@ -1,6 +1,6 @@
 {
   "name": "agent-orchestrator",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Run multiple Claude Code sessions in parallel with real-time status monitoring",
   "license": "MIT",
   "repository": {
