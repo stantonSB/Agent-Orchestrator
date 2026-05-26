@@ -28,6 +28,7 @@ export function _resetCounterForTesting(): void {
 }
 
 const STORAGE_KEY = "ao-last-session-mode";
+const DIR_STORAGE_KEY = "ao-last-directory";
 const VALID_MODES: SessionMode[] = ["claude-auto", "claude", "claude-skip", "claude-plan", "terminal"];
 
 function getStoredMode(): SessionMode {
@@ -63,12 +64,13 @@ export function NewSessionModal({
     if (isOpen) {
       setName("");
       setDefaultName(getDefaultSessionName(peekNextSessionNumber()));
-      setDirectory(lastUsedDirectory);
+      const initialDir = lastUsedDirectory ?? localStorage.getItem(DIR_STORAGE_KEY);
+      setDirectory(initialDir);
       setSessionMode(getStoredMode());
       setPullLatest(false);
       setIsGitRepo(null);
-      if (lastUsedDirectory) {
-        invoke<boolean>("check_is_git_repo", { cwd: lastUsedDirectory })
+      if (initialDir) {
+        invoke<boolean>("check_is_git_repo", { cwd: initialDir })
           .then(setIsGitRepo)
           .catch(() => setIsGitRepo(false));
       }
@@ -107,6 +109,7 @@ export function NewSessionModal({
     const finalName = trimmedName || getDefaultSessionName(getNextSessionNumber());
     if (!directory) return;
     localStorage.setItem(STORAGE_KEY, sessionMode);
+    localStorage.setItem(DIR_STORAGE_KEY, directory);
     onCreate(finalName, directory, sessionMode, effectivePullLatest, isGitRepo ?? false);
   };
 
