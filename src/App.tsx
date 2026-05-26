@@ -10,7 +10,8 @@ import { TerminalArea } from "./components/TerminalArea/TerminalArea";
 import { ToastContainer } from "./components/ToastContainer/ToastContainer";
 import { CloseConfirmDialog } from "./components/CloseConfirmDialog/CloseConfirmDialog";
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
-import { useSaveOnClose } from "./hooks/useSaveOnClose";
+import { useSaveOnClose, saveSessionsAndQuit } from "./hooks/useSaveOnClose";
+import { QuitConfirmDialog } from "./components/QuitConfirmDialog/QuitConfirmDialog";
 import { useGlobalKeybindings, getCycledIndex } from "./hooks/useGlobalKeybindings";
 import styles from "./App.module.css";
 
@@ -37,6 +38,8 @@ export function App() {
   const createSession = useSessionStore((s) => s.createSession);
   const closeSession = useSessionStore((s) => s.closeSession);
   const dismissSession = useSessionStore((s) => s.dismissSession);
+  const showQuitConfirm = useSessionStore((s) => s.showQuitConfirm);
+  const setShowQuitConfirm = useSessionStore((s) => s.setShowQuitConfirm);
 
   const activeSession = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const activeIsRunning = activeSession
@@ -61,6 +64,11 @@ export function App() {
     }
     setShowCloseConfirm(false);
   }, [activeSession, activeIsRunning, closeSession, dismissSession]);
+
+  const handleConfirmQuit = useCallback(async () => {
+    setShowQuitConfirm(false);
+    await saveSessionsAndQuit();
+  }, [setShowQuitConfirm]);
 
   const sessionList = useMemo(() => {
     return Array.from(sessions.values()).sort(
@@ -174,6 +182,14 @@ export function App() {
             isRunning={activeIsRunning}
             onConfirm={handleConfirmClose}
             onCancel={() => setShowCloseConfirm(false)}
+          />,
+          document.body
+        )}
+      {showQuitConfirm &&
+        createPortal(
+          <QuitConfirmDialog
+            onConfirm={handleConfirmQuit}
+            onCancel={() => setShowQuitConfirm(false)}
           />,
           document.body
         )}
