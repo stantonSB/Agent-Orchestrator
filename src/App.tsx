@@ -10,14 +10,17 @@ import { TerminalArea } from "./components/TerminalArea/TerminalArea";
 import { ToastContainer } from "./components/ToastContainer/ToastContainer";
 import { CloseConfirmDialog } from "./components/CloseConfirmDialog/CloseConfirmDialog";
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
-import { useSaveOnClose } from "./hooks/useSaveOnClose";
-import { useGlobalKeybindings } from "./hooks/useGlobalKeybindings";
+import { useSaveOnClose, saveSessionsAndQuit } from "./hooks/useSaveOnClose";
+import { QuitConfirmDialog } from "./components/QuitConfirmDialog/QuitConfirmDialog";
+import { SettingsModal } from "./components/SettingsModal/SettingsModal";
+import { useGlobalKeybindings, getCycledIndex } from "./hooks/useGlobalKeybindings";
 import styles from "./App.module.css";
 
 export function App() {
   useInitializeSessions();
   useSaveOnClose();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const addToast = useSessionStore((s) => s.addToast);
 
   useEffect(() => {
@@ -37,6 +40,8 @@ export function App() {
   const createSession = useSessionStore((s) => s.createSession);
   const closeSession = useSessionStore((s) => s.closeSession);
   const dismissSession = useSessionStore((s) => s.dismissSession);
+  const showQuitConfirm = useSessionStore((s) => s.showQuitConfirm);
+  const setShowQuitConfirm = useSessionStore((s) => s.setShowQuitConfirm);
 
   const activeSession = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const activeIsRunning = activeSession
@@ -45,6 +50,10 @@ export function App() {
 
   const handleNewSession = useCallback(() => {
     setIsModalOpen(true);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setIsSettingsOpen(true);
   }, []);
 
   const handleCloseActiveSession = useCallback(() => {
@@ -61,6 +70,11 @@ export function App() {
     }
     setShowCloseConfirm(false);
   }, [activeSession, activeIsRunning, closeSession, dismissSession]);
+
+  const handleConfirmQuit = useCallback(async () => {
+    setShowQuitConfirm(false);
+    await saveSessionsAndQuit();
+  }, [setShowQuitConfirm]);
 
   const sessionList = useMemo(() => {
     return Array.from(sessions.values()).sort(
@@ -82,10 +96,23 @@ export function App() {
     [orderedSessionIds, setActiveSession],
   );
 
+  const handleCyclePrev = useCallback(() => {
+    const idx = getCycledIndex("prev", activeSessionId, orderedSessionIds);
+    if (idx !== null) setActiveSession(orderedSessionIds[idx]);
+  }, [orderedSessionIds, activeSessionId, setActiveSession]);
+
+  const handleCycleNext = useCallback(() => {
+    const idx = getCycledIndex("next", activeSessionId, orderedSessionIds);
+    if (idx !== null) setActiveSession(orderedSessionIds[idx]);
+  }, [orderedSessionIds, activeSessionId, setActiveSession]);
+
   useGlobalKeybindings({
     onNewSession: handleNewSession,
     onCloseActiveSession: handleCloseActiveSession,
     onSwitchToSession: handleSwitchToSession,
+    onCyclePrev: handleCyclePrev,
+    onCycleNext: handleCycleNext,
+    onOpenSettings: handleOpenSettings,
   });
 
   const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => {
@@ -129,7 +156,7 @@ export function App() {
 
   return (
     <div className={styles.app}>
-      <TitleBar />
+      <TitleBar onSettingsClick={handleOpenSettings} />
       <div className={styles.content}>
         <TerminalArea
           sessions={sessionList}
@@ -153,6 +180,10 @@ export function App() {
         onCreate={handleCreateSession}
         lastUsedDirectory={lastUsedDirectory}
       />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
       <ToastContainer />
       {showCloseConfirm && activeSession &&
         createPortal(
@@ -161,6 +192,14 @@ export function App() {
             isRunning={activeIsRunning}
             onConfirm={handleConfirmClose}
             onCancel={() => setShowCloseConfirm(false)}
+          />,
+          document.body
+        )}
+      {showQuitConfirm &&
+        createPortal(
+          <QuitConfirmDialog
+            onConfirm={handleConfirmQuit}
+            onCancel={() => setShowQuitConfirm(false)}
           />,
           document.body
         )}

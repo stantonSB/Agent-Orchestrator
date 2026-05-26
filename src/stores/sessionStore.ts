@@ -26,6 +26,10 @@ interface SessionState {
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
+  // Quit confirmation
+  showQuitConfirm: boolean;
+  setShowQuitConfirm: (show: boolean) => void;
+
   // Toast notifications
   toasts: ToastData[];
   addToast: (message: string, type: ToastData["type"]) => void;
@@ -74,6 +78,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeSessionId: null,
   lastUsedDirectory: null,
   subagents: new Map(),
+  showQuitConfirm: false,
+  setShowQuitConfirm: (show) => set({ showQuitConfirm: show }),
   toasts: [],
 
   addToast: (message, type) => {
