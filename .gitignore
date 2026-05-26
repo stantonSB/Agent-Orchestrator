@@ -41,4 +41,3 @@ AuthKey_*.p8
 *.p12
 *.cer
 *.pem
-AuthKey_*.p8
