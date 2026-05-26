@@ -19,7 +19,7 @@ export function peekNextSessionNumber(): number {
 
 export function getDefaultSessionName(n: number): string {
   const pattern = localStorage.getItem(DEFAULT_NAME_STORAGE_KEY) || DEFAULT_PATTERN;
-  return pattern.replaceAll("{n}", String(n));
+  return pattern.replace(/\{n\}/g, String(n));
 }
 
 // Only for tests
