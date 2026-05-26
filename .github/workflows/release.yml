@@ -6,16 +6,18 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build:
     permissions:
       contents: write
     strategy:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            target: aarch64-apple-darwin
+            arch: aarch64
           - platform: macos-latest
-            args: --target x86_64-apple-darwin
+            target: x86_64-apple-darwin
+            arch: x86_64
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -39,22 +41,113 @@ jobs:
           mkdir -p ~/private_keys
           echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
 
-      - name: Build and release
+      - name: Build (no release)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ── Code Signing ──
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # ── Notarization (App Store Connect API) ──
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name }}
-          releaseBody: 'See the assets below to download and install Agent Orchestrator.'
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
+          args: --target ${{ matrix.target }}
+
+      - name: Rename DMG to arch-specific convention
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          # Find the DMG that Tauri produced (name varies by Tauri version)
+          DMG_FILE=$(find "$DMG_DIR" -name '*.dmg' -type f | head -1)
+          if [ -z "$DMG_FILE" ]; then
+            echo "::error::No DMG found in $DMG_DIR"
+            exit 1
+          fi
+          echo "Found DMG: $DMG_FILE"
+          cp "$DMG_FILE" "AgentOrchestrator-v${VERSION}-${{ matrix.arch }}.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: AgentOrchestrator-v*-${{ matrix.arch }}.dmg
+
+  release:
+    needs: build
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download aarch64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: dmg-aarch64
+
+      - name: Download x86_64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: dmg-x86_64
+
+      - name: Create GitHub release and upload DMGs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ls -la *.dmg
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "See the assets below to download and install Agent Orchestrator." \
+            AgentOrchestrator-v*-aarch64.dmg \
+            AgentOrchestrator-v*-x86_64.dmg
+
+  update-homebrew:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - name: Download DMGs from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.dmg'
+          ls -la *.dmg
+
+      - name: Update Homebrew cask formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+
+          AARCH64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-aarch64.dmg" | awk '{print $1}')
+          X86_64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-x86_64.dmg" | awk '{print $1}')
+
+          echo "aarch64 SHA256: $AARCH64_SHA"
+          echo "x86_64 SHA256: $X86_64_SHA"
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/stantonSB/homebrew-agent-orchestrator.git" tap
+          cd tap
+
+          python3 -c "
+          import re
+          content = open('Casks/agent-orchestrator.rb').read()
+          content = re.sub(r'version \"[^\"]+\"', 'version \"${VERSION}\"', content, count=1)
+          shas = ['${AARCH64_SHA}', '${X86_64_SHA}']
+          i = [0]
+          def replacer(m):
+              result = f'sha256 \"{shas[i[0]]}\"'
+              i[0] += 1
+              return result
+          content = re.sub(r'sha256 \"[^\"]+\"', replacer, content)
+          open('Casks/agent-orchestrator.rb', 'w').write(content)
+          "
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/agent-orchestrator.rb
+          git commit -m "Update agent-orchestrator to v${VERSION}"
+          git push
