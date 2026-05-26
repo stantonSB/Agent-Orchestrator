@@ -11,7 +11,7 @@ import { ToastContainer } from "./components/ToastContainer/ToastContainer";
 import { CloseConfirmDialog } from "./components/CloseConfirmDialog/CloseConfirmDialog";
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
 import { useSaveOnClose } from "./hooks/useSaveOnClose";
-import { useGlobalKeybindings } from "./hooks/useGlobalKeybindings";
+import { useGlobalKeybindings, getCycledIndex } from "./hooks/useGlobalKeybindings";
 import styles from "./App.module.css";
 
 export function App() {
@@ -82,10 +82,23 @@ export function App() {
     [orderedSessionIds, setActiveSession],
   );
 
+  const handleCyclePrev = useCallback(() => {
+    const idx = getCycledIndex("prev", activeSessionId, orderedSessionIds);
+    if (idx !== null) setActiveSession(orderedSessionIds[idx]);
+  }, [orderedSessionIds, activeSessionId, setActiveSession]);
+
+  const handleCycleNext = useCallback(() => {
+    const idx = getCycledIndex("next", activeSessionId, orderedSessionIds);
+    if (idx !== null) setActiveSession(orderedSessionIds[idx]);
+  }, [orderedSessionIds, activeSessionId, setActiveSession]);
+
   useGlobalKeybindings({
     onNewSession: handleNewSession,
     onCloseActiveSession: handleCloseActiveSession,
     onSwitchToSession: handleSwitchToSession,
+    onCyclePrev: handleCyclePrev,
+    onCycleNext: handleCycleNext,
+    onOpenSettings: () => {}, // wired in Task 7
   });
 
   const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => {
