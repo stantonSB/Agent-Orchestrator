@@ -18,16 +18,38 @@ Distribute Agent Orchestrator via Homebrew Cask so users can install with `brew 
 
 **Current state:** A matrix build produces two DMGs with identical names. The `tauri-apps/tauri-action@v0` handles both build and upload in one step.
 
-**Change:** Restructure `.github/workflows/release.yml` into two jobs:
+**Change:** Restructure `.github/workflows/release.yml` into three jobs:
 
-- **`build` job** (matrix: aarch64, x86_64): Builds the DMG via tauri-action but does NOT create the release. Uploads the DMG as a GitHub Actions artifact with an arch-specific name.
-- **`release` job** (depends on `build`): Downloads both artifacts, creates a single GitHub release, and attaches both DMGs with distinct names.
+#### `build` job (matrix: aarch64, x86_64)
 
-**Asset naming:**
+Builds the DMG via tauri-action in **build-only mode** — omit `tagName`, `releaseName`, and `releaseBody` inputs so tauri-action builds but does not create a GitHub release.
+
+Tauri produces DMGs named like `Agent Orchestrator_1.5.0_aarch64.dmg` (spaces, underscores, no `v` prefix). After the build step, add an explicit **rename step** to normalize the filename:
+
+```bash
+# Rename Tauri's default output to our convention
+mv "Agent Orchestrator_${VERSION}_${ARCH}.dmg" "AgentOrchestrator-v${VERSION}-${ARCH}.dmg"
+```
+
+Then upload the renamed DMG as a GitHub Actions artifact using `actions/upload-artifact@v4` with a name like `dmg-aarch64` or `dmg-x86_64`.
+
+#### `release` job (depends on `build`)
+
+1. Downloads both artifacts using `actions/download-artifact@v4`
+2. Creates the GitHub release using `gh release create $TAG --title "$TAG" --notes "..."`
+3. Uploads both DMGs using `gh release upload $TAG AgentOrchestrator-v*-aarch64.dmg AgentOrchestrator-v*-x86_64.dmg`
+
+Since `gh release upload` runs within the same job as `gh release create`, all assets are guaranteed to be present before the job completes.
+
+#### `update-homebrew` job (depends on `release`)
+
+See Section 3 below.
+
+**Asset naming convention:**
 - `AgentOrchestrator-v{VERSION}-aarch64.dmg`
 - `AgentOrchestrator-v{VERSION}-x86_64.dmg`
 
-The `.app.tar.gz` update bundles (used by Tauri's built-in updater) follow the same pattern if present.
+The `.app.tar.gz` update bundles (used by Tauri's built-in updater) follow the same rename pattern if present.
 
 ### 2. Homebrew Tap Repository
 
@@ -48,12 +70,12 @@ cask "agent-orchestrator" do
   version "1.5.0"
 
   on_arm do
-    sha256 "<aarch64-sha256>"
+    sha256 "AARCH64_SHA256"
     url "https://github.com/stantonSB/Agent-Orchestrator/releases/download/v#{version}/AgentOrchestrator-v#{version}-aarch64.dmg"
   end
 
   on_intel do
-    sha256 "<x86_64-sha256>"
+    sha256 "X86_64_SHA256"
     url "https://github.com/stantonSB/Agent-Orchestrator/releases/download/v#{version}/AgentOrchestrator-v#{version}-x86_64.dmg"
   end
 
@@ -62,7 +84,7 @@ cask "agent-orchestrator" do
   homepage "https://github.com/stantonSB/Agent-Orchestrator"
 
   livecheck do
-    url :url
+    url "https://github.com/stantonSB/Agent-Orchestrator"
     strategy :github_latest
   end
 
@@ -74,8 +96,15 @@ cask "agent-orchestrator" do
     "~/Library/Preferences/com.xbridge.agent-orchestrator.plist",
     "~/Library/Saved Application State/com.xbridge.agent-orchestrator.savedState",
   ]
+  # Note: Agent Orchestrator installs hooks in ~/.claude/settings.json and
+  # ~/.claude.json on first launch. These are shared config files used by
+  # Claude Code and are intentionally NOT removed on uninstall to avoid
+  # breaking other tools. Users can manually remove the
+  # "agent-orchestrator-notify" hook entries if desired.
 end
 ```
+
+**README.md contents:** Brief install/upgrade/uninstall instructions and a link to the main Agent Orchestrator repo.
 
 **User install:**
 ```bash
@@ -90,27 +119,75 @@ brew upgrade --cask agent-orchestrator
 
 ### 3. Auto-Update Cask on Release
 
-Add a third job to the existing release workflow in `Agent-Orchestrator/.github/workflows/release.yml`:
+The `update-homebrew` job in the release workflow (depends on `release`):
 
-**`update-homebrew` job** (depends on `release`):
+1. Downloads both DMGs from the just-created GitHub release using `gh release download $TAG --pattern '*.dmg'`.
+2. Computes SHA256 for each DMG: `shasum -a 256 <file> | awk '{print $1}'`.
+3. Clones `stantonSB/homebrew-agent-orchestrator` using the PAT.
+4. Updates the cask formula using a **template approach** rather than fragile sed:
 
-1. Downloads both DMGs from the just-created GitHub release using `gh release download`.
-2. Computes SHA256 for each DMG.
-3. Clones `stantonSB/homebrew-agent-orchestrator` using a PAT.
-4. Rewrites `Casks/agent-orchestrator.rb` with the new version and SHA256 values using `sed`.
+```bash
+# Extract version from tag
+VERSION="${TAG#v}"
+
+# Compute SHAs
+AARCH64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-aarch64.dmg" | awk '{print $1}')
+X86_64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-x86_64.dmg" | awk '{print $1}')
+
+# Replace placeholders in the formula
+sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/agent-orchestrator.rb
+sed -i '' "s/sha256 \"AARCH64_SHA256\"/sha256 \"${AARCH64_SHA}\"/" Casks/agent-orchestrator.rb
+sed -i '' "s/sha256 \"X86_64_SHA256\"/sha256 \"${X86_64_SHA}\"/" Casks/agent-orchestrator.rb
+```
+
+The sentinel values `AARCH64_SHA256` and `X86_64_SHA256` are replaced each run. After the sed replacements, the script also resets the sentinels back so the next release can find them:
+
+```bash
+# After computing and replacing, store the actual SHAs but keep them findable
+# The sed commands above replace the sentinel with the real SHA.
+# On the NEXT release, we need to find the OLD sha to replace it.
+# Solution: always replace whatever sha256 value is in the on_arm/on_intel block.
+```
+
+Actually, a cleaner approach: use `awk` or a small script that understands the block structure:
+
+```bash
+python3 -c "
+import re, sys
+content = open('Casks/agent-orchestrator.rb').read()
+content = re.sub(r'version \"[^\"]+\"', 'version \"${VERSION}\"', content, count=1)
+# Replace first sha256 (on_arm block) and second sha256 (on_intel block)
+shas = ['${AARCH64_SHA}', '${X86_64_SHA}']
+i = [0]
+def replacer(m):
+    result = f'sha256 \"{shas[i[0]]}\"'
+    i[0] += 1
+    return result
+content = re.sub(r'sha256 \"[a-f0-9]{64}\"', replacer, content)
+open('Casks/agent-orchestrator.rb', 'w').write(content)
+"
+```
+
+This handles arbitrary previous SHA values without needing sentinels.
+
 5. Commits and pushes to the tap repo.
 
-**Authentication:** A GitHub Personal Access Token stored as `HOMEBREW_TAP_TOKEN` in the Agent-Orchestrator repo secrets. This token needs `repo` scope (write access to `homebrew-agent-orchestrator`).
+**Authentication:** A fine-grained GitHub Personal Access Token stored as `HOMEBREW_TAP_TOKEN` in the Agent-Orchestrator repo secrets. The fine-grained PAT must be scoped to the `homebrew-agent-orchestrator` repository only, with **Contents: Read and write** permission.
 
 **Workflow structure summary:**
 ```
 release.yml
   build (matrix: aarch64, x86_64)
-    → uploads arch-specific artifacts
+    → tauri-action in build-only mode (no tagName/releaseName/releaseBody)
+    → rename DMG to arch-specific convention
+    → upload as GHA artifact
   release (needs: build)
-    → downloads artifacts, creates GitHub release with both DMGs
+    → download artifacts
+    → gh release create + gh release upload both DMGs
   update-homebrew (needs: release)
-    → computes SHAs, updates cask formula, pushes to tap repo
+    → gh release download both DMGs
+    → compute SHA256s
+    → clone tap repo, update formula via python3 script, commit, push
 ```
 
 ## Out of Scope
@@ -118,17 +195,18 @@ release.yml
 - **Official homebrew-cask submission:** Deferred until the project builds sufficient notability (stars, downloads). The own-tap approach works identically for users.
 - **Linux/Windows Homebrew support:** macOS only for now.
 - **Tauri built-in updater changes:** The `.app.tar.gz` artifacts and updater endpoint are unaffected by this work.
+- **Hook cleanup on uninstall:** Agent Orchestrator writes entries to `~/.claude/settings.json` and `~/.claude.json`. These are shared config files and are intentionally left in place on uninstall. Documented in the cask formula comment.
 
 ## Risks and Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| PAT token expires or is revoked | Use a fine-grained PAT with long expiry scoped only to the tap repo. Workflow failure is non-blocking (release still succeeds, cask just doesn't auto-update). |
-| DMG asset names change in future Tauri versions | Pin tauri-action version; test on upgrades. |
+| PAT token expires or is revoked | Use a fine-grained PAT with long expiry scoped only to the tap repo with Contents: Read and write permission. Workflow failure is non-blocking (release still succeeds, cask just doesn't auto-update). |
+| DMG asset names change in future Tauri versions | The rename step normalizes names regardless of Tauri's output format. Pin tauri-action version; test on upgrades. |
 | Breaking change for users with bookmarked old DMG URLs | Old URL format only ever had one arch's DMG anyway (overwrite bug). Document the new URLs in release notes. |
 
 ## Testing
 
-- After restructuring the release workflow, cut a test prerelease (`v1.5.1-rc.1`) and verify both DMGs appear with correct arch-specific names.
+- After restructuring the release workflow, cut a test prerelease (`v1.5.1-rc.1`) and verify both DMGs appear on the GitHub release with correct arch-specific names.
 - After creating the tap repo, test `brew tap` + `brew install --cask` + `brew uninstall --cask` locally.
-- After adding auto-update job, cut another test release and verify the cask formula is updated automatically.
+- After adding the auto-update job, cut another test release and verify the cask formula is updated automatically in the tap repo.
