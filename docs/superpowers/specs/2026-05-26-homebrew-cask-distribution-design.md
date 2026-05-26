@@ -49,7 +49,7 @@ See Section 3 below.
 - `AgentOrchestrator-v{VERSION}-aarch64.dmg`
 - `AgentOrchestrator-v{VERSION}-x86_64.dmg`
 
-The `.app.tar.gz` update bundles (used by Tauri's built-in updater) follow the same rename pattern if present.
+The `.app.tar.gz` update bundles (used by Tauri's built-in updater) are not currently in use and are excluded from the rename/upload steps. If Tauri's auto-updater is enabled in the future, the same rename convention should be applied to those artifacts.
 
 ### 2. Homebrew Tap Repository
 
@@ -124,51 +124,31 @@ The `update-homebrew` job in the release workflow (depends on `release`):
 1. Downloads both DMGs from the just-created GitHub release using `gh release download $TAG --pattern '*.dmg'`.
 2. Computes SHA256 for each DMG: `shasum -a 256 <file> | awk '{print $1}'`.
 3. Clones `stantonSB/homebrew-agent-orchestrator` using the PAT.
-4. Updates the cask formula using a **template approach** rather than fragile sed:
+4. Updates the cask formula using a python3 script that understands the block structure:
 
 ```bash
-# Extract version from tag
 VERSION="${TAG#v}"
-
-# Compute SHAs
 AARCH64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-aarch64.dmg" | awk '{print $1}')
 X86_64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-x86_64.dmg" | awk '{print $1}')
 
-# Replace placeholders in the formula
-sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/agent-orchestrator.rb
-sed -i '' "s/sha256 \"AARCH64_SHA256\"/sha256 \"${AARCH64_SHA}\"/" Casks/agent-orchestrator.rb
-sed -i '' "s/sha256 \"X86_64_SHA256\"/sha256 \"${X86_64_SHA}\"/" Casks/agent-orchestrator.rb
-```
-
-The sentinel values `AARCH64_SHA256` and `X86_64_SHA256` are replaced each run. After the sed replacements, the script also resets the sentinels back so the next release can find them:
-
-```bash
-# After computing and replacing, store the actual SHAs but keep them findable
-# The sed commands above replace the sentinel with the real SHA.
-# On the NEXT release, we need to find the OLD sha to replace it.
-# Solution: always replace whatever sha256 value is in the on_arm/on_intel block.
-```
-
-Actually, a cleaner approach: use `awk` or a small script that understands the block structure:
-
-```bash
 python3 -c "
-import re, sys
+import re
 content = open('Casks/agent-orchestrator.rb').read()
 content = re.sub(r'version \"[^\"]+\"', 'version \"${VERSION}\"', content, count=1)
 # Replace first sha256 (on_arm block) and second sha256 (on_intel block)
+# Matches both 64-char hex hashes and placeholder strings like AARCH64_SHA256
 shas = ['${AARCH64_SHA}', '${X86_64_SHA}']
 i = [0]
 def replacer(m):
     result = f'sha256 \"{shas[i[0]]}\"'
     i[0] += 1
     return result
-content = re.sub(r'sha256 \"[a-f0-9]{64}\"', replacer, content)
+content = re.sub(r'sha256 \"[^\"]+\"', replacer, content)
 open('Casks/agent-orchestrator.rb', 'w').write(content)
 "
 ```
 
-This handles arbitrary previous SHA values without needing sentinels.
+The regex `sha256 \"[^\"]+\"` matches any sha256 value — both 64-char hex hashes from previous releases and the initial placeholder strings (`AARCH64_SHA256`, `X86_64_SHA256`) on first run. The replacements are positional: first match is the `on_arm` block, second is `on_intel`.
 
 5. Commits and pushes to the tap repo.
 
