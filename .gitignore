@@ -36,3 +36,8 @@ src-tauri/target/
 
 # Apple API keys
 AuthKey_*.p8
+
+# Signing certificates
+*.p12
+*.cer
+*.pem
