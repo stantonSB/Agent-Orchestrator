@@ -12,6 +12,7 @@ import { CloseConfirmDialog } from "./components/CloseConfirmDialog/CloseConfirm
 import { useInitializeSessions } from "./hooks/useInitializeSessions";
 import { useSaveOnClose, saveSessionsAndQuit } from "./hooks/useSaveOnClose";
 import { QuitConfirmDialog } from "./components/QuitConfirmDialog/QuitConfirmDialog";
+import { SettingsModal } from "./components/SettingsModal/SettingsModal";
 import { useGlobalKeybindings, getCycledIndex } from "./hooks/useGlobalKeybindings";
 import styles from "./App.module.css";
 
@@ -19,6 +20,7 @@ export function App() {
   useInitializeSessions();
   useSaveOnClose();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const addToast = useSessionStore((s) => s.addToast);
 
   useEffect(() => {
@@ -48,6 +50,10 @@ export function App() {
 
   const handleNewSession = useCallback(() => {
     setIsModalOpen(true);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setIsSettingsOpen(true);
   }, []);
 
   const handleCloseActiveSession = useCallback(() => {
@@ -106,7 +112,7 @@ export function App() {
     onSwitchToSession: handleSwitchToSession,
     onCyclePrev: handleCyclePrev,
     onCycleNext: handleCycleNext,
-    onOpenSettings: () => {}, // wired in Task 7
+    onOpenSettings: handleOpenSettings,
   });
 
   const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => {
@@ -150,7 +156,7 @@ export function App() {
 
   return (
     <div className={styles.app}>
-      <TitleBar />
+      <TitleBar onSettingsClick={handleOpenSettings} />
       <div className={styles.content}>
         <TerminalArea
           sessions={sessionList}
@@ -173,6 +179,10 @@ export function App() {
         onClose={() => setIsModalOpen(false)}
         onCreate={handleCreateSession}
         lastUsedDirectory={lastUsedDirectory}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
       <ToastContainer />
       {showCloseConfirm && activeSession &&
