@@ -4,6 +4,29 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { SessionMode } from "../../types/session";
 import styles from "./NewSessionModal.module.css";
 
+const DEFAULT_NAME_STORAGE_KEY = "ao-default-session-name";
+const DEFAULT_PATTERN = "Session {n}";
+
+let sessionCounter = 0;
+
+export function getNextSessionNumber(): number {
+  return ++sessionCounter;
+}
+
+export function peekNextSessionNumber(): number {
+  return sessionCounter + 1;
+}
+
+export function getDefaultSessionName(n: number): string {
+  const pattern = localStorage.getItem(DEFAULT_NAME_STORAGE_KEY) || DEFAULT_PATTERN;
+  return pattern.replaceAll("{n}", String(n));
+}
+
+// Only for tests
+export function _resetCounterForTesting(): void {
+  sessionCounter = 0;
+}
+
 const STORAGE_KEY = "ao-last-session-mode";
 const VALID_MODES: SessionMode[] = ["claude-auto", "claude", "claude-skip", "claude-plan", "terminal"];
 
@@ -29,6 +52,7 @@ export function NewSessionModal({
   lastUsedDirectory,
 }: NewSessionModalProps) {
   const [name, setName] = useState("");
+  const [defaultName, setDefaultName] = useState("");
   const [directory, setDirectory] = useState<string | null>(null);
   const [sessionMode, setSessionMode] = useState<SessionMode>(getStoredMode);
   const [pullLatest, setPullLatest] = useState(false);
@@ -38,6 +62,7 @@ export function NewSessionModal({
   useEffect(() => {
     if (isOpen) {
       setName("");
+      setDefaultName(getDefaultSessionName(peekNextSessionNumber()));
       setDirectory(lastUsedDirectory);
       setSessionMode(getStoredMode());
       setPullLatest(false);
@@ -79,21 +104,22 @@ export function NewSessionModal({
 
   const handleCreate = () => {
     const trimmedName = name.trim();
-    if (!trimmedName || !directory) return;
+    const finalName = trimmedName || getDefaultSessionName(getNextSessionNumber());
+    if (!directory) return;
     localStorage.setItem(STORAGE_KEY, sessionMode);
-    onCreate(trimmedName, directory, sessionMode, effectivePullLatest, isGitRepo ?? false);
+    onCreate(finalName, directory, sessionMode, effectivePullLatest, isGitRepo ?? false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       onClose();
     }
-    if (e.key === "Enter" && name.trim() && directory) {
+    if (e.key === "Enter" && directory) {
       handleCreate();
     }
   };
 
-  const isValid = name.trim().length > 0 && directory !== null;
+  const isValid = directory !== null;
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -114,7 +140,7 @@ export function NewSessionModal({
             id="session-name"
             className={styles.input}
             type="text"
-            placeholder="e.g. fix-auth-bug"
+            placeholder={defaultName}
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoComplete="off"
