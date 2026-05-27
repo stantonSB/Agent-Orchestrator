@@ -293,3 +293,17 @@ pub fn delete_persisted_session(
     persistence::delete_session(&state.persistence_dir, &session_id)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn save_dropped_image(data: Vec<u8>, extension: String) -> Result<String, String> {
+    const ALLOWED: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff"];
+    let ext = extension.to_lowercase();
+    if !ALLOWED.contains(&ext.as_str()) {
+        return Err(format!("Unsupported image extension: {extension}"));
+    }
+    let filename = format!("ao-dropped-{}.{}", uuid::Uuid::new_v4(), ext);
+    let path = std::env::temp_dir().join(&filename);
+    std::fs::write(&path, &data)
+        .map_err(|e| format!("Failed to write temp image: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
