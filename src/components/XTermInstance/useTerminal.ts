@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { FilePathLinkProvider } from "./filePathLinkProvider";
 import "@xterm/xterm/css/xterm.css";
@@ -118,6 +119,9 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     term.loadAddon(new WebLinksAddon((_event, uri) => {
       openUrl(uri);
     }));
+    const unicodeAddon = new UnicodeGraphemesAddon();
+    term.loadAddon(unicodeAddon);
+    term.unicode.activeVersion = "17";
     term.registerLinkProvider(new FilePathLinkProvider(term, cwdRef));
 
     // Intercept Cmd+F so it doesn't get sent to the PTY
