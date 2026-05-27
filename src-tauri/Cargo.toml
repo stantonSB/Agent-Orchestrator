@@ -1,6 +1,6 @@
 [package]
 name = "agent-orchestrator"
-version = "1.6.0"
+version = "1.7.0"
 description = "Desktop app for running parallel Claude Code terminal sessions with real-time status monitoring"
 authors = ["Stanton Borthwick"]
 license = "MIT"

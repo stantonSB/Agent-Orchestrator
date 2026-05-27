@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.0] - 2026-05-27
+
+### Added
+- **Image drag-and-drop** — Drag images from Finder or a web browser onto the active terminal to paste the file path, replicating copy-paste behavior with Claude Code. Includes a visual drop overlay during drag.
+
+### Fixed
+- **Shift+Enter newline** — Shift+Enter now correctly inserts a newline instead of submitting input.
+- **Emoji spacing** — Fixed emoji spacing in terminal status bar.
+
 ## [1.6.0] - 2026-05-27
 
 ### Added
