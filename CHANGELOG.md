@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.7.1] - 2026-05-27
+
+### Fixed
+- **Unicode grapheme handling** — Use correct Unicode version for xterm graphemes addon, fixing potential text rendering issues
+
 ## [1.7.0] - 2026-05-27
 
 ### Added
