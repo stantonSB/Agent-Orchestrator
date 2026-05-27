@@ -121,7 +121,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     }));
     const unicodeAddon = new UnicodeGraphemesAddon();
     term.loadAddon(unicodeAddon);
-    term.unicode.activeVersion = "17";
+    term.unicode.activeVersion = "15-graphemes";
     term.registerLinkProvider(new FilePathLinkProvider(term, cwdRef));
 
     // Intercept Cmd+F so it doesn't get sent to the PTY
