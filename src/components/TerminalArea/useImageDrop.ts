@@ -42,6 +42,7 @@ export function useImageDrop({
     (path: string) => {
       if (!activeSessionId || isActiveSessionReadOnly || mockMode) return;
       const encoder = new TextEncoder();
+      // Trailing space so the cursor lands after the path
       const bytes = Array.from(encoder.encode(path + " "));
       writeToSession({ id: activeSessionId, data: bytes }).catch((err) => {
         console.error("Failed to write dropped image path:", err);
@@ -51,6 +52,8 @@ export function useImageDrop({
   );
 
   // Layer 1: Tauri onDragDropEvent (Finder file drags)
+  // Note: This fires window-wide (Tauri API limitation), but the overlay is
+  // CSS-positioned inside terminalContainer so it only appears there visually.
   useEffect(() => {
     if (mockMode) return;
 
@@ -61,8 +64,10 @@ export function useImageDrop({
         if (event.payload.type === "enter" || event.payload.type === "over") {
           setIsDragging(true);
         } else if (event.payload.type === "leave") {
+          dragCounter.current = 0;
           setIsDragging(false);
         } else if (event.payload.type === "drop") {
+          dragCounter.current = 0;
           setIsDragging(false);
           const paths = event.payload.paths ?? [];
           const imagePath = paths.find(isImagePath);
@@ -109,10 +114,11 @@ export function useImageDrop({
 
       if (!activeSessionId || isActiveSessionReadOnly || mockMode) return;
 
-      // Check for file paths first (in case HTML5 also fires for file drags)
+      // Finder file drags populate dataTransfer.files in WKWebView (Tauri's
+      // macOS webview). Tauri's Layer 1 already handles these, so skip here
+      // to avoid writing the path twice.
       const files = e.dataTransfer.files;
       if (files.length > 0) {
-        // Tauri's Layer 1 handles file drags — skip here to avoid double-paste
         return;
       }
 
