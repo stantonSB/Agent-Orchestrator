@@ -13,6 +13,8 @@ import {
 import type { SessionExitPayload } from "../../types/tauri-events";
 import { useSessionStore } from "../../stores/sessionStore";
 import styles from "./TerminalArea.module.css";
+import { DropOverlay } from "./DropOverlay";
+import { useImageDrop } from "./useImageDrop";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -42,6 +44,13 @@ export function TerminalArea({
   onSessionExit: onSessionExitProp,
   mockMode = false,
 }: TerminalAreaProps) {
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const { isDragging, dropHandlers } = useImageDrop({
+    activeSessionId,
+    isActiveSessionReadOnly: activeSession?.persisted ?? false,
+    mockMode,
+  });
+
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const refsMap = useRef(new Map<string, XTermInstanceHandle>());
   const outputListeners = useRef(new Map<string, Promise<() => void>>());
@@ -290,8 +299,9 @@ export function TerminalArea({
   }
 
   return (
-    <div className={styles.terminalArea}>
+    <div className={styles.terminalArea} {...dropHandlers}>
       <div className={styles.terminalContainer}>
+        {isDragging && <DropOverlay />}
         {isSearchOpen && (
           <SearchBar
             onFindNext={handleFindNext}
