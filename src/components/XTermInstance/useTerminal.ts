@@ -123,15 +123,6 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     // Intercept Cmd+F so it doesn't get sent to the PTY
     term.attachCustomKeyEventHandler((event) => {
       if (event.metaKey && event.key === "f") return false;
-
-      // Shift+Enter: send \n (newline) instead of \r (carriage return).
-      // Claude Code treats \r as "submit" and \n as "insert newline".
-      // Without this, xterm.js sends \r for both Enter and Shift+Enter.
-      if (event.shiftKey && event.key === "Enter" && event.type === "keydown") {
-        onDataRef.current?.("\n");
-        return false;
-      }
-
       return true;
     });
 
@@ -141,6 +132,20 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     // Mount
     term.open(container);
+
+    // Shift+Enter: intercept at the DOM level in the capture phase so
+    // the event is caught *before* xterm.js sees it.  We send \n to the
+    // PTY (Claude Code in legacy mode treats \n as "insert newline" and
+    // \r as "submit").  preventDefault + stopImmediatePropagation ensures
+    // xterm.js never generates its own \r for this keypress.
+    const shiftEnterHandler = (event: KeyboardEvent) => {
+      if (event.shiftKey && event.key === "Enter") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onDataRef.current?.("\n");
+      }
+    };
+    container.addEventListener("keydown", shiftEnterHandler, { capture: true });
 
     // Initial fit — use double-rAF to ensure the browser has completed
     // layout after xterm inserts its DOM elements.  A single rAF can fire
@@ -238,6 +243,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
       // Cleanup mock-specific resources
       return () => {
         if (mockIntervalRef.current) clearInterval(mockIntervalRef.current);
+        container.removeEventListener("keydown", shiftEnterHandler, { capture: true });
         mockDataDisposable.dispose();
         dataDisposable.dispose();
         resizeDisposable.dispose();
@@ -252,6 +258,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     // Cleanup (non-mock)
     return () => {
+      container.removeEventListener("keydown", shiftEnterHandler, { capture: true });
       dataDisposable.dispose();
       resizeDisposable.dispose();
       observer.disconnect();
