@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.6.0] - 2026-05-27
+
+### Added
+- **Settings modal** — Configurable session names via a new settings modal, accessible with Cmd+, or the gear icon in the title bar
+- **Quit confirmation dialog** — Prompts before closing the app to prevent accidental session loss
+- **Session cycling keybindings** — Navigate between sessions with Cmd+Shift+[ and Cmd+Shift+]
+- **Default session names** — New sessions get auto-incrementing placeholder names (Session 1, Session 2, etc.)
+- **Directory persistence** — Last used directory is remembered across app restarts
+- **Auto-focus confirm button** — Close session dialog now auto-focuses the confirm button for faster keyboard workflows
+- **Homebrew Cask distribution** — Agent Orchestrator can now be installed and updated via `brew install --cask agent-orchestrator` (#95)
+
 ## [1.4.1] - 2026-05-21
 
 ### Fixed
