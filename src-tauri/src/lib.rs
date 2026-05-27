@@ -140,6 +140,7 @@ pub fn run() {
             commands::list_persisted_sessions,
             commands::get_session_scrollback,
             commands::delete_persisted_session,
+            commands::save_dropped_image,
         ])
         .on_window_event(|_window, _event| {
             // Shutdown moved to RunEvent::Exit to allow frontend save-on-close

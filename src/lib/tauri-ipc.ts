@@ -73,6 +73,15 @@ export async function listSessions(): Promise<SessionInfo[]> {
   return invoke<SessionInfo[]>("list_sessions");
 }
 
+export interface SaveDroppedImageArgs {
+  data: number[];
+  extension: string;
+}
+
+export async function saveDroppedImage(args: SaveDroppedImageArgs): Promise<string> {
+  return invoke<string>("save_dropped_image", { ...args });
+}
+
 // ---------------------------------------------------------------------------
 // Tauri event listeners
 // ---------------------------------------------------------------------------

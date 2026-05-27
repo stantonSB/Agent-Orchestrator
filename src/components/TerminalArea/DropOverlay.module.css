@@ -1,0 +1,19 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(26, 27, 38, 0.85);
+  border: 2px dashed var(--accent-primary, #7aa2f7);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.label {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--accent-primary, #7aa2f7);
+  user-select: none;
+}
