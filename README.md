@@ -58,6 +58,15 @@ Each session runs `claude --worktree` by default, giving it an isolated git bran
 
 ## Install
 
+### Homebrew (Recommended)
+
+```bash
+brew tap stantonSB/agent-orchestrator
+brew install --cask agent-orchestrator
+```
+
+### Manual Download
+
 1. Download the latest `.dmg` from [**Releases**](https://github.com/stantonSB/Agent-Orchestrator/releases)
 2. Drag to Applications, then run:
    ```bash
@@ -65,7 +74,7 @@ Each session runs `claude --worktree` by default, giving it an isolated git bran
    ```
 3. Open Agent Orchestrator
 
-> See [Installation Guide](docs/installation.md) for details on Gatekeeper, first launch, and prerequisites.
+> See [Installation Guide](docs/installation.md) for details on prerequisites and first launch.
 
 ---
 

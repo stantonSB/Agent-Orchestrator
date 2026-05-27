@@ -6,16 +6,18 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build:
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
+            arch: aarch64
           - platform: macos-latest
             args: --target x86_64-apple-darwin
+            arch: x86_64
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -39,7 +41,7 @@ jobs:
           mkdir -p ~/private_keys
           echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
 
-      - name: Build and release
+      - name: Build (no release)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,9 +54,97 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name }}
-          releaseBody: 'See the assets below to download and install Agent Orchestrator.'
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Rename DMG to arch-specific convention
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="${{ matrix.arch }}"
+          DMG_DIR="src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/dmg"
+          SRC=$(ls "$DMG_DIR"/*.dmg)
+          DEST="AgentOrchestrator-v${VERSION}-${ARCH}.dmg"
+          mv "$SRC" "$DEST"
+          echo "DMG_PATH=$DEST" >> "$GITHUB_ENV"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: ${{ env.DMG_PATH }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download aarch64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: dmg-aarch64
+
+      - name: Download x86_64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: dmg-x86_64
+
+      - name: Create GitHub Release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "See the assets below to download and install Agent Orchestrator."
+          gh release upload "$TAG" AgentOrchestrator-v*-aarch64.dmg AgentOrchestrator-v*-x86_64.dmg
+
+  update-homebrew:
+    needs: release
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download DMGs from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release download "$TAG" --pattern '*.dmg'
+
+      - name: Compute SHA256s and update cask formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          AARCH64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-aarch64.dmg" | awk '{print $1}')
+          X86_64_SHA=$(shasum -a 256 "AgentOrchestrator-v${VERSION}-x86_64.dmg" | awk '{print $1}')
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/stantonSB/homebrew-agent-orchestrator.git" tap
+          cd tap
+
+          python3 -c "
+          import re
+          content = open('Casks/agent-orchestrator.rb').read()
+          content = re.sub(r'version \"[^\"]+\"', 'version \"${VERSION}\"', content, count=1)
+          # Replace first sha256 (on_arm block) and second sha256 (on_intel block)
+          # Matches both 64-char hex hashes and placeholder strings like AARCH64_SHA256
+          shas = ['${AARCH64_SHA}', '${X86_64_SHA}']
+          i = [0]
+          def replacer(m):
+              result = f'sha256 \"{shas[i[0]]}\"'
+              i[0] += 1
+              return result
+          content = re.sub(r'sha256 \"[^\"]+\"', replacer, content)
+          open('Casks/agent-orchestrator.rb', 'w').write(content)
+          "
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/agent-orchestrator.rb
+          git commit -m "Update agent-orchestrator to v${VERSION}"
+          git push

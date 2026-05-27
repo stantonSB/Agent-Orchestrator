@@ -5,11 +5,22 @@
 - **macOS** (Apple Silicon or Intel)
 - **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** CLI installed and available on your PATH
 
-## Download
+## Option A: Homebrew (Recommended)
+
+```bash
+brew tap stantonSB/agent-orchestrator
+brew install --cask agent-orchestrator
+```
+
+To upgrade later:
+
+```bash
+brew upgrade --cask agent-orchestrator
+```
+
+## Option B: Manual Download
 
 Download the latest `.dmg` from the [Releases](https://github.com/stantonSB/Agent-Orchestrator/releases) page.
-
-## Install
 
 1. Open the `.dmg` and drag **Agent Orchestrator** to your Applications folder.
 
@@ -22,6 +33,8 @@ Download the latest `.dmg` from the [Releases](https://github.com/stantonSB/Agen
 3. Open the app normally. This only needs to be done once after downloading.
 
 > **Why is the xattr command needed?** When macOS downloads a file via a browser, it attaches a quarantine attribute. Unsigned apps with this attribute are blocked by Gatekeeper. The command above removes the quarantine flag.
+>
+> **Note:** Homebrew installs skip this step — Homebrew handles quarantine removal automatically.
 
 ## First Launch
 

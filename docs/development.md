@@ -63,6 +63,20 @@ npm run release:minor   # 0.1.1 → 0.2.0
 npm run release:major   # 0.1.1 → 1.0.0
 ```
 
+Pushing the tag triggers the release workflow (`.github/workflows/release.yml`), which runs three jobs:
+
+1. **`build`** — Matrix build (aarch64 + x86_64). Uses tauri-action in build-only mode, renames DMGs to `AgentOrchestrator-v{VERSION}-{arch}.dmg`, and uploads them as GitHub Actions artifacts.
+2. **`release`** — Downloads both DMG artifacts, creates the GitHub Release, and uploads both DMGs as release assets.
+3. **`update-homebrew`** — Downloads the DMGs, computes SHA256 hashes, clones the [homebrew-agent-orchestrator](https://github.com/stantonSB/homebrew-agent-orchestrator) tap repo, updates the cask formula, and pushes the commit.
+
+### Release secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | Code signing |
+| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_PRIVATE_KEY` | Notarization via App Store Connect API |
+| `HOMEBREW_TAP_TOKEN` | Fine-grained PAT scoped to `homebrew-agent-orchestrator` (Contents: Read and write) for auto-updating the cask formula |
+
 ## IDE Setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
