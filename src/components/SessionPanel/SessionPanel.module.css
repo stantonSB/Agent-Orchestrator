@@ -27,6 +27,7 @@
   gap: 2px;
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .sessionList::-webkit-scrollbar {
