@@ -61,12 +61,12 @@ export function App() {
     setShowCloseConfirm(true);
   }, [activeSession]);
 
-  const handleConfirmClose = useCallback(() => {
+  const handleConfirmClose = useCallback((deleteWorktree: boolean) => {
     if (!activeSession) return;
     if (activeIsRunning) {
-      closeSession(activeSession.id);
+      closeSession(activeSession.id, deleteWorktree);
     } else {
-      dismissSession(activeSession.id);
+      dismissSession(activeSession.id, deleteWorktree);
     }
     setShowCloseConfirm(false);
   }, [activeSession, activeIsRunning, closeSession, dismissSession]);
@@ -190,6 +190,7 @@ export function App() {
           <CloseConfirmDialog
             sessionName={activeSession.name}
             isRunning={activeIsRunning}
+            hasWorktree={!!activeSession.worktreeCwd}
             onConfirm={handleConfirmClose}
             onCancel={() => setShowCloseConfirm(false)}
           />,

@@ -20,11 +20,11 @@ interface SessionState {
   updateSubagents: (sessionId: string, subagents: SubagentStatus[]) => void;
 
   // Session management
-  dismissSession: (id: string) => void;
+  dismissSession: (id: string, deleteWorktree?: boolean) => void;
 
   // Tauri IPC actions
   createSession: (name: string, cwd: string, sessionMode?: SessionMode, pullLatest?: boolean, isGitRepo?: boolean, parentSessionId?: string) => Promise<void>;
-  closeSession: (id: string) => Promise<void>;
+  closeSession: (id: string, deleteWorktree?: boolean) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
   // Quit confirmation
@@ -71,6 +71,26 @@ function cancelSubagentCleanup(sessionId: string) {
   if (timer) {
     clearTimeout(timer);
     subagentCleanupTimers.delete(sessionId);
+  }
+}
+
+async function tryRemoveWorktree(worktreeCwd: string | undefined | null, addToast: SessionState["addToast"]) {
+  if (!worktreeCwd) return;
+  try {
+    const result = await invoke<{ removed: boolean; dirty: boolean; message: string }>(
+      "remove_worktree",
+      { worktreePath: worktreeCwd, force: false }
+    );
+    if (result.dirty) {
+      // Worktree has uncommitted changes — force-remove with a warning toast
+      addToast("Worktree had uncommitted changes — force removing", "warning");
+      await invoke("remove_worktree", { worktreePath: worktreeCwd, force: true });
+    }
+  } catch (err) {
+    addToast(
+      `Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
+      "error"
+    );
   }
 }
 
@@ -179,8 +199,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  dismissSession: (id) => {
+  dismissSession: (id, deleteWorktree) => {
     const session = get().sessions.get(id);
+    const worktreeCwd = session?.worktreeCwd;
     if (session?.persisted) {
       // Delete from disk (fire-and-forget)
       invoke("delete_persisted_session", { sessionId: id }).catch((err) => {
@@ -205,6 +226,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       return { sessions: next, subagents: nextSubagents, activeSessionId };
     });
+    if (deleteWorktree) {
+      tryRemoveWorktree(worktreeCwd, get().addToast);
+    }
   },
 
   createSession: async (name, cwd, sessionMode = "claude", pullLatest = false, isGitRepo = true, parentSessionId?) => {
@@ -290,9 +314,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  closeSession: async (id) => {
+  closeSession: async (id, deleteWorktree) => {
     const state = get();
     const session = state.sessions.get(id);
+    const worktreeCwd = session?.worktreeCwd;
 
     // Find child sessions (worktree-linked terminals)
     const children = Array.from(state.sessions.values()).filter(
@@ -323,6 +348,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         console.error("Failed to delete persisted session:", err);
       }
       get().removeSession(id);
+      if (deleteWorktree) {
+        tryRemoveWorktree(worktreeCwd, get().addToast);
+      }
       return;
     }
 
@@ -340,6 +368,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     await invoke("close_session", { id });
     get().removeSession(id);
+    if (deleteWorktree) {
+      tryRemoveWorktree(worktreeCwd, get().addToast);
+    }
   },
 
   renameSession: async (id, name) => {
