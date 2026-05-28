@@ -147,6 +147,24 @@ Configure the default session naming pattern with `{n}` for auto-incrementing nu
 
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+
+### Worktree-Linked Terminals
+
+Create terminal sessions linked to an active Claude session's git worktree. Child sessions appear nested under their parent in the sidebar and close automatically when the parent is closed.
+
+![Worktree-linked terminal sessions](assets/feature-worktree-terminal.png)
+
+</td>
+<td width="50%" valign="top">
+
+### Worktree Cleanup on Close
+
+When closing or dismissing a session, a checkbox lets you automatically clean up the git worktree. No more orphaned worktree directories cluttering your repo.
+
+</td>
+</tr>
 </table>
 
 ---
