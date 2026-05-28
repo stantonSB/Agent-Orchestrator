@@ -38,32 +38,60 @@ jobs:
 
       - name: Write App Store Connect API key
         run: |
-          mkdir -p "${{ runner.temp }}/private_keys"
-          echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > "${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+          KEY_DIR="${{ runner.temp }}/private_keys"
+          mkdir -p "$KEY_DIR"
+          echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > "$KEY_DIR/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+          echo "KEY_PATH=$KEY_DIR/AuthKey_${{ secrets.APPLE_API_KEY }}.p8" >> "$GITHUB_ENV"
 
-      - name: Build (no release)
+      - name: Verify API key file
+        run: |
+          echo "Key file path: $KEY_PATH"
+          echo "Key file exists: $(test -f "$KEY_PATH" && echo yes || echo no)"
+          echo "Key file size: $(wc -c < "$KEY_PATH") bytes"
+          echo "Key file starts with: $(head -c 30 "$KEY_PATH")"
+
+      - name: Build and sign (without notarization)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ── Code Signing ──
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # ── Notarization (App Store Connect API) ──
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         with:
           args: ${{ matrix.args }}
 
-      - name: Rename DMG to arch-specific convention
+      - name: Notarize app
+        run: |
+          APP_PATH="src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/macos/Agent Orchestrator.app"
+          echo "Notarizing: $APP_PATH"
+
+          # Create zip for notarization
+          ZIP_PATH="${{ runner.temp }}/Agent_Orchestrator.zip"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+
+          # Submit for notarization
+          xcrun notarytool submit "$ZIP_PATH" \
+            --key "$KEY_PATH" \
+            --key-id "${{ secrets.APPLE_API_KEY }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER }}" \
+            --wait --timeout 600
+
+          # Staple the notarization ticket
+          xcrun stapler staple "$APP_PATH"
+
+      - name: Re-create DMG with notarized app
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARCH="${{ matrix.arch }}"
-          DMG_DIR="src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/dmg"
-          SRC=$(ls "$DMG_DIR"/*.dmg)
+          APP_PATH="src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/macos/Agent Orchestrator.app"
           DEST="AgentOrchestrator-v${VERSION}-${ARCH}.dmg"
-          mv "$SRC" "$DEST"
+
+          # Create a fresh DMG from the notarized+stapled .app
+          hdiutil create -volname "Agent Orchestrator" \
+            -srcfolder "$APP_PATH" \
+            -ov -format UDZO \
+            "$DEST"
+
           echo "DMG_PATH=$DEST" >> "$GITHUB_ENV"
 
       - name: Upload DMG artifact
