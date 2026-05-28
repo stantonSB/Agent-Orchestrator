@@ -258,7 +258,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().addSession(session);
     get().setActiveSession(id);
     get().setupEventListeners(id, sessionMode);
-    set({ lastUsedDirectory: cwd });
+    // Don't let worktree paths contaminate lastUsedDirectory — they're
+    // derivatives, not real project directories.
+    if (!cwd.includes("/.claude/worktrees/")) {
+      set({ lastUsedDirectory: cwd });
+    }
 
     if (sessionMode !== "terminal") {
       try {

@@ -132,7 +132,9 @@ export function NewSessionModal({
     const finalName = trimmedName || getDefaultSessionName(getNextSessionNumber());
     if (!effectiveDirectory) return;
     localStorage.setItem(STORAGE_KEY, sessionMode);
-    if (directory) localStorage.setItem(DIR_STORAGE_KEY, directory);
+    if (directory && !directory.includes("/.claude/worktrees/")) {
+      localStorage.setItem(DIR_STORAGE_KEY, directory);
+    }
     onCreate(
       finalName,
       effectiveDirectory,
