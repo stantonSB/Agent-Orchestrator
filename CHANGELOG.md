@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0] - 2026-05-28
+
+### Added
+- **Worktree-linked terminal sessions** — Create terminal sessions linked to an active Claude session's git worktree, with parent-child nesting in the sidebar and cascading close (#109)
+
+### Fixed
+- **Quit confirmation not closing app** — The quit confirmation dialog now properly closes the app after user confirms, instead of re-triggering the close prevention (#108)
+- **Sidebar text clipping** — Reserve scrollbar space to prevent content from shifting when the scrollbar appears
+
+### Changed
+- **Documentation overhaul** — Expanded README from 4 to 14 feature entries, added screenshots for all major features, and updated all doc pages for accuracy
+
 ## [1.7.1] - 2026-05-27
 
 ### Fixed
