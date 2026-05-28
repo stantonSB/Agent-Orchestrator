@@ -96,6 +96,8 @@ Drag images from Finder or a browser directly onto the terminal. The file path i
 
 Press `Cmd+F` to search within any terminal's scrollback. Navigate matches with Enter/Shift+Enter. Full incremental search across the 10k-line buffer.
 
+![Terminal search](assets/feature-terminal-search.png)
+
 </td>
 <td width="50%" valign="top">
 
@@ -138,6 +140,8 @@ Rename sessions (double-click or context menu), close with confirmation dialogs,
 ### Settings
 
 Configure the default session naming pattern with `{n}` for auto-incrementing numbers. Access via `Cmd+,` or the title bar settings button.
+
+![Settings modal](assets/feature-settings.png)
 
 </td>
 </tr>
