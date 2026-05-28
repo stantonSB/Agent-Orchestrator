@@ -69,9 +69,7 @@ export function NewSessionModal({
       (s) =>
         s.sessionType === "claude" &&
         s.worktreeCwd &&
-        s.status !== "finished" &&
-        s.status !== "exited" &&
-        s.status !== "error"
+        s.status !== "exited"
     );
   }, [sessions, sessionMode]);
 
