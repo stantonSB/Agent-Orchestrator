@@ -356,6 +356,27 @@ describe("sessionStore", () => {
       const { lastUsedDirectory } = useSessionStore.getState();
       expect(lastUsedDirectory).toBe("/projects/my-app");
     });
+
+    it("does not set lastUsedDirectory to a worktree path", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      // First create a normal session to set lastUsedDirectory
+      vi.mocked(invoke).mockResolvedValueOnce("normal-id");
+      const store = useSessionStore.getState();
+      await store.createSession("Normal", "/projects/my-app");
+      expect(useSessionStore.getState().lastUsedDirectory).toBe("/projects/my-app");
+
+      // Now create a session with a worktree cwd
+      vi.mocked(invoke).mockResolvedValueOnce("worktree-id");
+      await useSessionStore.getState().createSession(
+        "Worktree Terminal",
+        "/projects/my-app/.claude/worktrees/staged-moseying-gray",
+        "terminal"
+      );
+
+      // lastUsedDirectory should NOT be updated to the worktree path
+      expect(useSessionStore.getState().lastUsedDirectory).toBe("/projects/my-app");
+    });
   });
 
   describe("setupEventListeners", () => {
