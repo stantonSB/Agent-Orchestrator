@@ -10,8 +10,8 @@ interface ProjectGroupProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   onSessionClick: (id: string) => void;
-  onClose: (id: string) => Promise<void>;
-  onDismiss: (id: string) => void;
+  onClose: (id: string, deleteWorktree: boolean) => Promise<void>;
+  onDismiss: (id: string, deleteWorktree: boolean) => void;
   onRename?: (id: string, name: string) => void;
   subagentsBySession: Map<string, SubagentStatus[]>;
   childrenByParent?: Map<string, SessionInfo[]>;

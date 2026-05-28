@@ -315,6 +315,93 @@ pub fn delete_persisted_session(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeRemoveResult {
+    pub removed: bool,
+    pub dirty: bool,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn remove_worktree(worktree_path: String, force: bool) -> Result<WorktreeRemoveResult, String> {
+    let path = PathBuf::from(&worktree_path);
+    if !path.exists() {
+        return Ok(WorktreeRemoveResult {
+            removed: true,
+            dirty: false,
+            message: "Worktree directory already removed".into(),
+        });
+    }
+
+    // Check for uncommitted changes unless forcing
+    if !force {
+        let status_output = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&path)
+            .output()
+            .map_err(|e| format!("Failed to run git status: {e}"))?;
+
+        if status_output.status.success() {
+            let stdout = String::from_utf8_lossy(&status_output.stdout);
+            if !stdout.trim().is_empty() {
+                return Ok(WorktreeRemoveResult {
+                    removed: false,
+                    dirty: true,
+                    message: "Worktree has uncommitted changes".into(),
+                });
+            }
+        }
+    }
+
+    // Run git worktree remove from the worktree's parent repo
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&worktree_path);
+
+    // We need to run from the main repo root, not from the worktree itself.
+    // Derive it by resolving the git common dir.
+    let common_dir_output = std::process::Command::new("git")
+        .args(["rev-parse", "--git-common-dir"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to find git common dir: {e}"))?;
+
+    let repo_root = if common_dir_output.status.success() {
+        let git_dir = String::from_utf8_lossy(&common_dir_output.stdout).trim().to_string();
+        // git common dir is typically <repo>/.git — parent is the repo root
+        let git_path = PathBuf::from(&git_dir);
+        if git_path.is_absolute() {
+            git_path.parent().unwrap_or(&git_path).to_path_buf()
+        } else {
+            // Relative path — resolve from the worktree cwd
+            let resolved = path.join(&git_path);
+            resolved.parent().unwrap_or(&resolved).to_path_buf()
+        }
+    } else {
+        // Fallback: try running from the worktree path itself
+        path.clone()
+    };
+
+    let remove_output = std::process::Command::new("git")
+        .args(&args)
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to run git worktree remove: {e}"))?;
+
+    if remove_output.status.success() {
+        Ok(WorktreeRemoveResult {
+            removed: true,
+            dirty: false,
+            message: "Worktree removed successfully".into(),
+        })
+    } else {
+        let stderr = String::from_utf8_lossy(&remove_output.stderr).trim().to_string();
+        Err(format!("git worktree remove failed: {stderr}"))
+    }
+}
+
 #[tauri::command]
 pub fn save_dropped_image(data: Vec<u8>, extension: String) -> Result<String, String> {
     const ALLOWED: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff"];

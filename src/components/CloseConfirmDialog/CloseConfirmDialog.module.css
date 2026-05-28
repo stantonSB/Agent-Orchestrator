@@ -31,6 +31,25 @@
 .message strong {
   color: #e5e7eb;
 }
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  user-select: none;
+}
+.checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.checkboxLabel {
+  font-size: 13px;
+  color: #d1d5db;
+}
 .actions {
   display: flex;
   justify-content: flex-end;

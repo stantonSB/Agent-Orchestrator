@@ -11,8 +11,8 @@ interface SessionCardProps {
   session: SessionInfo;
   isActive: boolean;
   onClick: (id: string) => void;
-  onClose?: (id: string) => void;
-  onDismiss?: (id: string) => void;
+  onClose?: (id: string, deleteWorktree: boolean) => void;
+  onDismiss?: (id: string, deleteWorktree: boolean) => void;
   onRename?: (id: string, name: string) => void;
 }
 
@@ -182,11 +182,12 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss, on
           <CloseConfirmDialog
             sessionName={session.name}
             isRunning={isRunning(session.status)}
-            onConfirm={() => {
+            hasWorktree={!!session.worktreeCwd}
+            onConfirm={(deleteWorktree) => {
               if (isRunning(session.status)) {
-                onClose?.(session.id);
+                onClose?.(session.id, deleteWorktree);
               } else {
-                onDismiss?.(session.id);
+                onDismiss?.(session.id, deleteWorktree);
               }
               setShowCloseConfirm(false);
             }}
