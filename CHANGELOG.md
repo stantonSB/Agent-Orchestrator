@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.1] - 2026-05-28
+
+### Added
+- **Worktree CWD discovery** — PreToolUse hook captures the working directory early when Claude Code operates in git worktrees, ensuring sessions are correctly grouped by project
+
+### Changed
+- **Updated installation docs** — Removed Gatekeeper quarantine workaround now that the app is properly signed and notarized; added worktree-linked terminals and cleanup features to README
+
 ## [1.9.0] - 2026-05-28
 
 ### Added
