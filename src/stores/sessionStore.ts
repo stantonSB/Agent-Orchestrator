@@ -252,6 +252,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         cwd,
         sessionType: "claude",
         isGitRepo,
+        ...(cwd.includes("/.claude/worktrees/") ? { worktreeCwd: cwd } : {}),
       };
     }
 
