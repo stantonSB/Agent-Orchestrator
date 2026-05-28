@@ -32,6 +32,7 @@ pub fn run() {
             let handle_for_status = app.handle().clone();
             let handle_for_hook = app.handle().clone();
             let handle_for_subagents = app.handle().clone();
+            let handle_for_worktree_cwd = app.handle().clone();
 
             // Install Claude Code notification hooks. Emit a warning event if
             // installation fails, but do not block startup.
@@ -81,6 +82,15 @@ pub fn run() {
                     let _ = handle_for_subagents.emit(&event_name, payload);
                 });
 
+            let on_worktree_cwd: pty_manager::WorktreeCwdCallback =
+                Box::new(move |id, cwd| {
+                    let event_name = format!("session-worktree-cwd-{}", id);
+                    let _ = handle_for_worktree_cwd.emit(
+                        &event_name,
+                        serde_json::json!({ "worktreeCwd": cwd }),
+                    );
+                });
+
             // Create shared status trackers — used by both the PTY manager
             // (to insert/remove trackers per session) and the HTTP status
             // server (to receive hook events and update tracker state).
@@ -94,8 +104,9 @@ pub fn run() {
             // Start the HTTP status server. It receives POST requests from
             // Claude Code hook scripts and fires the on_status callback.
             let on_subagents_arc: Arc<pty_manager::SubagentCallback> = Arc::new(on_subagents);
+            let on_worktree_cwd_arc: Arc<pty_manager::WorktreeCwdCallback> = Arc::new(on_worktree_cwd);
             let (status_server, status_port) =
-                status_server::StatusServer::start(status_trackers.clone(), on_status_for_server, on_subagents_arc);
+                status_server::StatusServer::start(status_trackers.clone(), on_status_for_server, on_subagents_arc, on_worktree_cwd_arc);
 
             // Start the PTY manager, giving it the shared trackers and the
             // port so newly spawned sessions get the correct env vars.

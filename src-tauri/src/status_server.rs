@@ -4,7 +4,7 @@
 //! script POSTs JSON to `POST /status/{ao_session_id}` and this module
 //! updates the corresponding [`StatusTracker`] in the shared map.
 
-use crate::pty_manager::{StatusCallback, SubagentCallback};
+use crate::pty_manager::{StatusCallback, SubagentCallback, WorktreeCwdCallback};
 use crate::status_parser::StatusTracker;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -26,6 +26,7 @@ impl StatusServer {
         trackers: Arc<Mutex<HashMap<String, StatusTracker>>>,
         on_status: Arc<StatusCallback>,
         on_subagents: Arc<SubagentCallback>,
+        on_worktree_cwd: Arc<WorktreeCwdCallback>,
     ) -> (Self, u16) {
         let server =
             tiny_http::Server::http("127.0.0.1:0").expect("failed to bind status HTTP server");
@@ -36,7 +37,7 @@ impl StatusServer {
         thread::Builder::new()
             .name("status-server".into())
             .spawn(move || {
-                accept_loop(server_clone, trackers, on_status, on_subagents);
+                accept_loop(server_clone, trackers, on_status, on_subagents, on_worktree_cwd);
             })
             .expect("failed to spawn status server thread");
 
@@ -64,9 +65,10 @@ fn accept_loop(
     trackers: Arc<Mutex<HashMap<String, StatusTracker>>>,
     on_status: Arc<StatusCallback>,
     on_subagents: Arc<SubagentCallback>,
+    on_worktree_cwd: Arc<WorktreeCwdCallback>,
 ) {
     for request in server.incoming_requests() {
-        handle_request(request, &trackers, &on_status, &on_subagents);
+        handle_request(request, &trackers, &on_status, &on_subagents, &on_worktree_cwd);
     }
 }
 
@@ -99,6 +101,7 @@ fn handle_request(
     trackers: &Arc<Mutex<HashMap<String, StatusTracker>>>,
     on_status: &Arc<StatusCallback>,
     on_subagents: &Arc<SubagentCallback>,
+    on_worktree_cwd: &Arc<WorktreeCwdCallback>,
 ) {
     // Only allow POST.
     if *request.method() != tiny_http::Method::Post {
@@ -132,6 +135,13 @@ fn handle_request(
         }
     };
 
+    // Extract X-Cwd header if present.
+    let x_cwd: Option<String> = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("X-Cwd"))
+        .map(|h| h.value.to_string());
+
     // Extract agent_type if present (SubagentStart/SubagentStop events include this).
     let agent_type = json.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
     let prompt = json.get("prompt").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -152,10 +162,20 @@ fn handle_request(
     };
 
     // Look up tracker and apply the event.
+    let mut worktree_cwd_to_emit: Option<(String, String)> = None;
     let (transition, subagent_changed) = {
         let mut map = trackers.lock().unwrap();
         match map.get_mut(&ao_session_id) {
             Some(tracker) => {
+                // Check for worktree cwd
+                if let Some(ref cwd) = x_cwd {
+                    if cwd.contains(".claude/worktrees/") {
+                        if tracker.set_worktree_cwd(cwd) {
+                            worktree_cwd_to_emit = Some((ao_session_id.clone(), cwd.clone()));
+                        }
+                    }
+                }
+
                 let mut subagent_changed = false;
                 let is_subagent_event = notification_type == "subagent_start"
                     || notification_type == "subagent_stop";
@@ -204,6 +224,11 @@ fn handle_request(
             }
         }
     };
+
+    // Emit worktree cwd if detected
+    if let Some((session_id, cwd)) = worktree_cwd_to_emit {
+        on_worktree_cwd(session_id, cwd);
+    }
 
     // Emit subagent list update if changed
     if subagent_changed {
@@ -266,6 +291,10 @@ mod tests {
         Arc::new(Box::new(|_id: String, _payload: Vec<crate::subagent_tracker::SubagentStatusPayload>| {}))
     }
 
+    fn noop_worktree_callback() -> Arc<crate::pty_manager::WorktreeCwdCallback> {
+        Arc::new(Box::new(|_id: String, _cwd: String| {}))
+    }
+
     /// Send a raw HTTP request over a TcpStream and return the status line.
     fn raw_http(port: u16, request: &str) -> String {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect failed");
@@ -301,7 +330,7 @@ mod tests {
     #[test]
     fn test_server_starts_with_valid_port() {
         let trackers = make_trackers();
-        let (_server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (_server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
         assert!(port > 0, "port should be non-zero");
     }
 
@@ -311,7 +340,7 @@ mod tests {
         // Insert a tracker starting in Starting state; idle_prompt -> Idle.
         trackers.lock().unwrap().insert("sess1".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-sess-1","notification_type":"idle_prompt"}"#;
         let line = post(port, "/status/sess1", body);
@@ -328,7 +357,7 @@ mod tests {
         tracker.notify_hook_event("idle_prompt"); // Starting -> Idle
         trackers.lock().unwrap().insert("sess2".into(), tracker);
 
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-sess-2","notification_type":"idle_prompt"}"#;
         let line = post(port, "/status/sess2", body);
@@ -340,7 +369,7 @@ mod tests {
     #[test]
     fn test_post_unknown_session_id_returns_404() {
         let trackers = make_trackers();
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"x","notification_type":"idle_prompt"}"#;
         let line = post(port, "/status/unknown-session", body);
@@ -354,7 +383,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("sess3".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let line = post(port, "/status/sess3", "not-json{{");
         assert_eq!(status_code(&line), 400, "expected 400, got: {line}");
@@ -367,7 +396,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("sess4".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"x","message":"no type here"}"#;
         let line = post(port, "/status/sess4", body);
@@ -379,7 +408,7 @@ mod tests {
     #[test]
     fn test_get_request_returns_405() {
         let trackers = make_trackers();
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let line = get(port, "/status/any-session");
         assert_eq!(status_code(&line), 405, "expected 405, got: {line}");
@@ -390,7 +419,7 @@ mod tests {
     #[test]
     fn test_stop_works_cleanly() {
         let trackers = make_trackers();
-        let (server, _port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, _port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
         // Just verifying stop() doesn't panic.
         server.stop();
     }
@@ -404,7 +433,7 @@ mod tests {
         tracker.notify_user_input(b"task\r"); // Idle -> Working
         trackers.lock().unwrap().insert("sess-stop".into(), tracker);
 
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         // Stop hook sends hook_event_name instead of notification_type
         let body = r#"{"session_id":"cc-1","hook_event_name":"Stop","cwd":"/tmp"}"#;
@@ -419,7 +448,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("sess-stop2".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-2","hook_event_name":"Stop"}"#;
         let line = post(port, "/status/sess-stop2", body);
@@ -444,7 +473,7 @@ mod tests {
                 }
             }));
 
-        let (server, port) = StatusServer::start(trackers, cb, noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers, cb, noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-5","notification_type":"idle_prompt"}"#;
         post(port, "/status/sess5", body);
@@ -459,7 +488,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         // SubagentStart event with agent_type
         let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
@@ -479,7 +508,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         // Start then stop
         let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
@@ -503,7 +532,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         // Start 3 subagents (all share parent's session_id, as Claude Code does)
         for _ in 0..3 {
@@ -532,7 +561,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"general-purpose","prompt":"Review plan chunk 1 of the implementation"}"#;
         post(port, "/status/ao-sess", body);
@@ -550,7 +579,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"general-purpose","prompt":"Check auth module. Be thorough about edge cases."}"#;
         post(port, "/status/ao-sess", body);
@@ -568,7 +597,7 @@ mod tests {
         let trackers = make_trackers();
         trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
 
-        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
 
         let body = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
         post(port, "/status/ao-sess", body);
@@ -622,5 +651,75 @@ mod tests {
             derive_display_name("Fix auth.rs\nAlso check tests"),
             Some("Fix auth".to_string())
         );
+    }
+
+    #[test]
+    fn test_x_cwd_header_with_worktree_path_triggers_callback() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("sess-wt".into(), StatusTracker::new());
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let wt_cb: Arc<crate::pty_manager::WorktreeCwdCallback> =
+            Arc::new(Box::new(move |_id: String, cwd: String| {
+                if cwd.contains(".claude/worktrees/") {
+                    called_clone.store(true, Ordering::SeqCst);
+                }
+            }));
+
+        let (server, port) = StatusServer::start(
+            trackers,
+            noop_callback(),
+            noop_subagent_callback(),
+            wt_cb,
+        );
+
+        let body = r#"{"session_id":"cc-1","notification_type":"idle_prompt"}"#;
+        let request = format!(
+            "POST /status/sess-wt HTTP/1.0\r\nContent-Length: {}\r\nContent-Type: application/json\r\nX-Cwd: /projects/app/.claude/worktrees/breezy-frog\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        raw_http(port, &request);
+
+        assert!(called.load(Ordering::SeqCst), "worktree cwd callback should have been called");
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_x_cwd_header_without_worktree_path_does_not_trigger_callback() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("sess-no-wt".into(), StatusTracker::new());
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let wt_cb: Arc<crate::pty_manager::WorktreeCwdCallback> =
+            Arc::new(Box::new(move |_id: String, _cwd: String| {
+                called_clone.store(true, Ordering::SeqCst);
+            }));
+
+        let (server, port) = StatusServer::start(
+            trackers,
+            noop_callback(),
+            noop_subagent_callback(),
+            wt_cb,
+        );
+
+        let body = r#"{"session_id":"cc-1","notification_type":"idle_prompt"}"#;
+        let request = format!(
+            "POST /status/sess-no-wt HTTP/1.0\r\nContent-Length: {}\r\nContent-Type: application/json\r\nX-Cwd: /projects/app\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        raw_http(port, &request);
+
+        assert!(!called.load(Ordering::SeqCst), "callback should NOT fire for non-worktree paths");
+
+        server.stop();
     }
 }

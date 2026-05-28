@@ -15,7 +15,9 @@ const HOOK_SCRIPT: &str = r#"#!/bin/bash
 # No-ops silently when Agent Orchestrator is not running.
 if [ -n "$AO_STATUS_PORT" ] && [ -n "$AO_SESSION_ID" ]; then
     curl -s -X POST "http://127.0.0.1:${AO_STATUS_PORT}/status/${AO_SESSION_ID}" \
-        -H "Content-Type: application/json" -d @- 2>/dev/null || true
+        -H "Content-Type: application/json" \
+        -H "X-Cwd: $(pwd)" \
+        -d @- 2>/dev/null || true
 fi
 "#;
 
@@ -65,6 +67,13 @@ pub fn ensure_hooks_installed_in(home: &Path) -> HookInstallResult {
     HookInstallResult::Installed
 }
 
+fn script_has_current_content(path: &Path) -> bool {
+    match fs::read_to_string(path) {
+        Ok(content) => content == HOOK_SCRIPT,
+        Err(_) => false,
+    }
+}
+
 fn is_already_installed(script_path: &Path, settings_path: &Path, profile_path: &Path) -> bool {
     // Check script exists and is executable
     if !script_path.exists() {
@@ -75,6 +84,11 @@ fn is_already_installed(script_path: &Path, settings_path: &Path, profile_path: 
             return false;
         }
     } else {
+        return false;
+    }
+
+    // Check script content is up-to-date
+    if !script_has_current_content(script_path) {
         return false;
     }
 
@@ -523,6 +537,44 @@ mod tests {
             &serde_json::from_str::<serde_json::Value>(&fs::read_to_string(settings_path(&home)).unwrap()).unwrap(),
             "SubagentStop"
         ));
+    }
+
+    #[test]
+    fn test_hook_script_contains_x_cwd_header() {
+        assert!(
+            HOOK_SCRIPT.contains("X-Cwd"),
+            "hook script should include X-Cwd header"
+        );
+    }
+
+    #[test]
+    fn test_outdated_script_content_triggers_reinstall() {
+        let home = temp_home();
+        fs::create_dir_all(claude_dir(&home)).unwrap();
+
+        // Write an old-format script (no X-Cwd header)
+        let old_script = r#"#!/bin/bash
+if [ -n "$AO_STATUS_PORT" ] && [ -n "$AO_SESSION_ID" ]; then
+    curl -s -X POST "http://127.0.0.1:${AO_STATUS_PORT}/status/${AO_SESSION_ID}" \
+        -H "Content-Type: application/json" -d @- 2>/dev/null || true
+fi
+"#;
+        fs::write(script_path(&home), old_script).unwrap();
+        let mut perms = fs::metadata(script_path(&home)).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(script_path(&home), perms).unwrap();
+
+        // Install settings and profile so those checks pass
+        merge_hook_settings(&settings_path(&home)).unwrap();
+        set_idle_threshold(&profile_path(&home)).unwrap();
+
+        // Should detect outdated script and reinstall
+        let result = ensure_hooks_installed_in(home.path());
+        assert_eq!(result, HookInstallResult::Installed);
+
+        // Verify new script content
+        let content = fs::read_to_string(script_path(&home)).unwrap();
+        assert!(content.contains("X-Cwd"), "updated script should contain X-Cwd header");
     }
 
     #[test]

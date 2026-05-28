@@ -447,6 +447,105 @@ describe("sessionStore", () => {
     });
   });
 
+  describe("worktree-linked terminal sessions", () => {
+    it("creates a terminal session with parentSessionId", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("child-terminal-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession(
+        "Test Terminal",
+        "/projects/app/.claude/worktrees/breezy-frog",
+        "terminal",
+        false,
+        false,
+        "parent-claude-id"
+      );
+
+      const session = useSessionStore.getState().sessions.get("child-terminal-id");
+      expect(session?.parentSessionId).toBe("parent-claude-id");
+      expect(session?.sessionType).toBe("terminal");
+    });
+
+    it("creates a session without parentSessionId by default", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce("regular-id");
+
+      const store = useSessionStore.getState();
+      await store.createSession("Regular Session", "/projects/app", "claude");
+
+      const session = useSessionStore.getState().sessions.get("regular-id");
+      expect(session?.parentSessionId).toBeUndefined();
+    });
+
+    it("cascading close removes children before parent", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValue(undefined);
+
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "parent-1",
+        name: "Claude Parent",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/projects/app",
+        sessionType: "claude",
+        isGitRepo: true,
+      });
+      store.addSession({
+        id: "child-1",
+        name: "Terminal Child",
+        status: "terminal",
+        createdAt: Date.now(),
+        cwd: "/projects/app/.claude/worktrees/breezy-frog",
+        sessionType: "terminal",
+        isGitRepo: false,
+        parentSessionId: "parent-1",
+      });
+      store.addSession({
+        id: "child-2",
+        name: "Terminal Child 2",
+        status: "terminal",
+        createdAt: Date.now(),
+        cwd: "/projects/app/.claude/worktrees/breezy-frog",
+        sessionType: "terminal",
+        isGitRepo: false,
+        parentSessionId: "parent-1",
+      });
+
+      await store.closeSession("parent-1");
+
+      const { sessions } = useSessionStore.getState();
+      expect(sessions.has("parent-1")).toBe(false);
+      expect(sessions.has("child-1")).toBe(false);
+      expect(sessions.has("child-2")).toBe(false);
+
+      // close_session should have been called for children and parent
+      expect(invoke).toHaveBeenCalledWith("close_session", { id: "child-1" });
+      expect(invoke).toHaveBeenCalledWith("close_session", { id: "child-2" });
+      expect(invoke).toHaveBeenCalledWith("close_session", { id: "parent-1" });
+    });
+
+    it("updates worktreeCwd when event is received", () => {
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "claude-1",
+        name: "Claude Session",
+        status: "working",
+        createdAt: Date.now(),
+        cwd: "/projects/app",
+        sessionType: "claude",
+        isGitRepo: true,
+      });
+
+      // Simulate the worktree cwd update (same as event handler would do)
+      store.updateWorktreeCwd("claude-1", "/projects/app/.claude/worktrees/breezy-frog");
+
+      const session = useSessionStore.getState().sessions.get("claude-1");
+      expect(session?.worktreeCwd).toBe("/projects/app/.claude/worktrees/breezy-frog");
+    });
+  });
+
   describe("subagent cleanup", () => {
     beforeEach(() => {
       vi.useFakeTimers();

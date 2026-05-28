@@ -15,6 +15,7 @@ interface SessionState {
   setLastUsedDirectory: (dir: string) => void;
   removeSession: (id: string) => void;
   updateSessionStatus: (id: string, status: SessionStatus) => void;
+  updateWorktreeCwd: (id: string, worktreeCwd: string) => void;
   setActiveSession: (id: string) => void;
   updateSubagents: (sessionId: string, subagents: SubagentStatus[]) => void;
 
@@ -22,7 +23,7 @@ interface SessionState {
   dismissSession: (id: string) => void;
 
   // Tauri IPC actions
-  createSession: (name: string, cwd: string, sessionMode?: SessionMode, pullLatest?: boolean, isGitRepo?: boolean) => Promise<void>;
+  createSession: (name: string, cwd: string, sessionMode?: SessionMode, pullLatest?: boolean, isGitRepo?: boolean, parentSessionId?: string) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
@@ -157,6 +158,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessions: next };
     }),
 
+  updateWorktreeCwd: (id, worktreeCwd) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, worktreeCwd });
+      return { sessions: next };
+    }),
+
   setActiveSession: (id) => {
     const prevActive = useSessionStore.getState().activeSessionId;
     if (prevActive) cancelSubagentCleanup(prevActive);
@@ -197,7 +207,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  createSession: async (name, cwd, sessionMode = "claude", pullLatest = false, isGitRepo = true) => {
+  createSession: async (name, cwd, sessionMode = "claude", pullLatest = false, isGitRepo = true, parentSessionId?) => {
     let id: string;
     let session: SessionInfo;
 
@@ -223,6 +233,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         cwd,
         sessionType: "terminal",
         isGitRepo: false,
+        ...(parentSessionId ? { parentSessionId } : {}),
       };
     } else {
       id = await invoke<string>("create_session", {
@@ -266,8 +277,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   closeSession: async (id) => {
-    const session = get().sessions.get(id);
+    const state = get();
+    const session = state.sessions.get(id);
+
+    // Find child sessions (worktree-linked terminals)
+    const children = Array.from(state.sessions.values()).filter(
+      (s) => s.parentSessionId === id
+    );
+
     if (session?.persisted) {
+      // Close persisted children first
+      for (const child of children) {
+        if (child.persisted) {
+          try {
+            await invoke("delete_persisted_session", { sessionId: child.id });
+          } catch (err) {
+            console.error("Failed to delete persisted child session:", err);
+          }
+        } else {
+          try {
+            await invoke("close_session", { id: child.id });
+          } catch (err) {
+            console.error("Failed to close child session:", err);
+          }
+        }
+        get().removeSession(child.id);
+      }
       try {
         await invoke("delete_persisted_session", { sessionId: id });
       } catch (err) {
@@ -276,6 +311,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       get().removeSession(id);
       return;
     }
+
+    // Close children in parallel before closing parent
+    await Promise.all(
+      children.map(async (child) => {
+        try {
+          await invoke("close_session", { id: child.id });
+        } catch (err) {
+          console.error("Failed to close child session:", err);
+        }
+        get().removeSession(child.id);
+      })
+    );
+
     await invoke("close_session", { id });
     get().removeSession(id);
   },
@@ -416,6 +464,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       cleanups.push(
         listen<SubagentStatus[]>(`session-subagents-${sessionId}`, (event) => {
           get().updateSubagents(sessionId, event.payload);
+        })
+      );
+    }
+
+    // Listen for worktree cwd updates on non-terminal sessions
+    if (session?.sessionType !== "terminal") {
+      cleanups.push(
+        listen<{ worktreeCwd: string }>(`session-worktree-cwd-${sessionId}`, (event) => {
+          get().updateWorktreeCwd(sessionId, event.payload.worktreeCwd);
         })
       );
     }

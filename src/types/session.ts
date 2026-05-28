@@ -20,6 +20,8 @@ export interface SessionInfo {
   isGitRepo: boolean;
   persisted?: boolean;
   scrollbackText?: string;
+  parentSessionId?: string | null;
+  worktreeCwd?: string | null;
 }
 
 export interface SubagentStatus {

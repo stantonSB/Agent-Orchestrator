@@ -617,6 +617,32 @@ mod tests {
         assert_eq!(change, None);
     }
 
+    // -----------------------------------------------------------------------
+    // worktree_cwd
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_worktree_cwd_default_none() {
+        let tracker = StatusTracker::new();
+        assert_eq!(tracker.worktree_cwd(), None);
+    }
+
+    #[test]
+    fn test_set_worktree_cwd() {
+        let mut tracker = StatusTracker::new();
+        let changed = tracker.set_worktree_cwd("/projects/app/.claude/worktrees/breezy-frog");
+        assert!(changed);
+        assert_eq!(tracker.worktree_cwd(), Some("/projects/app/.claude/worktrees/breezy-frog"));
+    }
+
+    #[test]
+    fn test_set_worktree_cwd_returns_false_if_already_set() {
+        let mut tracker = StatusTracker::new();
+        tracker.set_worktree_cwd("/projects/app/.claude/worktrees/breezy-frog");
+        let changed = tracker.set_worktree_cwd("/projects/app/.claude/worktrees/breezy-frog");
+        assert!(!changed);
+    }
+
     #[test]
     fn test_set_status_skipped_when_already_transitioned() {
         let mut tracker = StatusTracker::new();
