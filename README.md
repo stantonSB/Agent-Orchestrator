@@ -4,7 +4,7 @@ Run multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessi
 
 ![macOS](https://img.shields.io/badge/macOS-000000?style=flat&logo=apple&logoColor=white)
 ![Tauri 2](https://img.shields.io/badge/Tauri_2-FFC131?style=flat&logo=tauri&logoColor=black)
-![v1.0.0](https://img.shields.io/github/v/release/stantonSB/Agent-Orchestrator?style=flat&label=version)
+![version](https://img.shields.io/github/v/release/stantonSB/Agent-Orchestrator?style=flat&label=version)
 
 ---
 
@@ -42,13 +42,92 @@ Hook-driven detection shows Working, Idle, Needs Attention, Finished, and Error 
 
 Sessions are automatically grouped by working directory in a collapsible sidebar. See all your active projects at a glance.
 
-
 </td>
 <td width="50%" valign="top">
 
 ### Worktree Isolation
 
-Each session runs `claude --worktree` by default, giving it an isolated git branch. Multiple agents can work on the same repo without conflicts.
+Each session runs `claude --worktree` by default (for git repos), giving it an isolated git branch. Multiple agents can work on the same repo without conflicts.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Session Modes
+
+Choose how each session runs: **Claude** (default interactive), **Auto** (autonomous mode), **Skip permissions**, **Plan mode**, or **Terminal** (plain shell). Mode selection is remembered between sessions.
+
+</td>
+<td width="50%" valign="top">
+
+### Subagent Tracking
+
+When Claude Code dispatches parallel subagents, each one appears with its own status dot and duration timer. See at a glance which subagents are working, finished, or need attention.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Session Persistence
+
+Finished sessions are automatically saved with their scrollback history. Relaunch the app and pick up where you left off — review past session output anytime.
+
+</td>
+<td width="50%" valign="top">
+
+### Image Drag & Drop
+
+Drag images from Finder or a browser directly onto the terminal. The file path is typed into the session automatically — perfect for sharing screenshots with Claude.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Terminal Search
+
+Press `Cmd+F` to search within any terminal's scrollback. Navigate matches with Enter/Shift+Enter. Full incremental search across the 10k-line buffer.
+
+</td>
+<td width="50%" valign="top">
+
+### Clickable File Paths
+
+File paths in terminal output are clickable — `Cmd+click` any path to open it in VS Code at the correct line and column. Supports relative and absolute paths.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Pull Latest from Main
+
+Optionally pull the latest changes from the default branch before starting a session. Automatically detects the remote's default branch (main, master, etc.) and checks out + pulls.
+
+</td>
+<td width="50%" valign="top">
+
+### Keyboard-Driven Workflow
+
+Full keyboard navigation: `Cmd+T` new session, `Cmd+W` close, `Cmd+1-9` switch by position, `Cmd+Shift+[/]` cycle sessions, `Cmd+,` settings, `Cmd+F` search. See [Keyboard Shortcuts](docs/keyboard-shortcuts.md).
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Session Management
+
+Rename sessions (double-click or context menu), close with confirmation dialogs, dismiss finished sessions, and resize the sidebar by dragging. Duration timers track how long each session has been running.
+
+</td>
+<td width="50%" valign="top">
+
+### Settings
+
+Configure the default session naming pattern with `{n}` for auto-incrementing numbers. Access via `Cmd+,` or the title bar settings button.
 
 </td>
 </tr>

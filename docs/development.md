@@ -85,36 +85,54 @@ Pushing the tag triggers the release workflow (`.github/workflows/release.yml`),
 
 ```
 src/                          # React frontend
-  App.tsx                     # Root component
+  App.tsx                     # Root component (layout, modals, keybindings)
   main.tsx                    # Entry point
   stores/
-    sessionStore.ts           # Zustand store (sessions, IPC, events)
+    sessionStore.ts           # Zustand store (sessions, subagents, IPC, events, persistence)
   components/
-    TerminalArea/             # Terminal rendering (CSS show/hide)
-    XTermInstance/             # xterm.js wrapper + file path links
+    TerminalArea/             # Terminal rendering (CSS show/hide), image drag & drop, search
+      TerminalArea.tsx        # Main terminal container
+      DropOverlay.tsx         # Visual overlay during image drag
+      useImageDrop.ts         # Drag & drop logic (Finder files + browser images)
+    XTermInstance/             # xterm.js wrapper + addons
+      XTermInstance.tsx       # Terminal component with read-only support
+      useTerminal.ts          # Terminal lifecycle, addons (Search, WebLinks, Unicode)
+      filePathLinkProvider.ts # Cmd+click to open file paths in VS Code
     SessionPanel/             # Sidebar with project groups
-    SessionCard/              # Session status, name, timer
+    SessionCard/              # Status dot, name, timer, rename, context menu
     ProjectGroup/             # Collapsible project section
-    NewSessionModal/          # Create session dialog
-    SubagentList/             # Subagent display within sessions
-    ...                       # Toast, TitleBar, ContextMenu, etc.
+    SubagentList/             # Subagent status dots, names, and timers
+    NewSessionModal/          # Create session: name, directory, mode, pull-latest
+    SettingsModal/            # Settings: default session name pattern
+    SearchBar/                # In-terminal text search (Cmd+F)
+    CloseConfirmDialog/       # Confirmation for closing/dismissing sessions
+    QuitConfirmDialog/        # Confirmation when quitting with active sessions
+    TitleBar/                 # Custom title bar with settings button
+    ContextMenu/              # Right-click context menu
+    Toast/                    # Individual toast notification
+    ToastContainer/           # Toast notification stack
+    NewSessionButton/         # Sidebar new session button
+    ActivityPulse/            # Animated pulse for working sessions
+    DurationTimer/            # Session elapsed time display
   hooks/
-    useGlobalKeybindings.ts   # Cmd+T, Cmd+W, Cmd+1-9
-    useInitializeSessions.ts  # Restore sessions on app start
+    useGlobalKeybindings.ts   # Cmd+T, Cmd+W, Cmd+1-9, Cmd+Shift+[/], Cmd+,
+    useInitializeSessions.ts  # Restore persisted sessions on app start
+    useSaveOnClose.ts         # Save session state + scrollback on quit
   lib/
     tauri-ipc.ts              # Typed Tauri invoke wrappers
   types/
-    session.ts                # Session TypeScript types
+    session.ts                # Session, SubagentStatus, SessionMode types
     tauri-events.ts           # Tauri event payload types
 
 src-tauri/src/                # Rust backend
   main.rs                     # Tauri app entry point
   lib.rs                      # Plugin registration
-  commands.rs                 # Tauri IPC command handlers
-  pty_manager.rs              # PTY lifecycle (dedicated thread)
+  commands.rs                 # Tauri IPC command handlers (sessions, persistence, git)
+  pty_manager.rs              # PTY lifecycle (dedicated thread, session modes)
   status_parser.rs            # Session status state machine
   status_server.rs            # HTTP server for hook events
   hook_installer.rs           # Auto-install Claude Code hooks
-  state.rs                    # AppState (PtyManager + StatusServer)
-  subagent_tracker.rs         # Track nested subagent sessions
+  state.rs                    # AppState (PtyManager + StatusServer + Persistence)
+  persistence.rs              # Session persistence (save/load/delete, atomic writes)
+  subagent_tracker.rs         # Track nested subagent sessions (start/stop/FIFO matching)
 ```
