@@ -40,8 +40,13 @@ jobs:
         run: |
           KEY_DIR="${{ runner.temp }}/private_keys"
           mkdir -p "$KEY_DIR"
-          echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > "$KEY_DIR/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
-          echo "KEY_PATH=$KEY_DIR/AuthKey_${{ secrets.APPLE_API_KEY }}.p8" >> "$GITHUB_ENV"
+          KEY_FILE="$KEY_DIR/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+          {
+            echo "-----BEGIN PRIVATE KEY-----"
+            echo "${{ secrets.APPLE_API_PRIVATE_KEY }}"
+            echo "-----END PRIVATE KEY-----"
+          } > "$KEY_FILE"
+          echo "KEY_PATH=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Verify API key file
         run: |
