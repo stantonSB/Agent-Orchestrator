@@ -51,3 +51,34 @@ Check prerequisites:
 1. **Claude Code CLI** — run `claude --version` in your terminal
 2. **Node.js** — run `node --version` (v18+ required for development, not for running the app)
 3. **Working directory** — the directory you selected in the new session modal must exist and be accessible
+
+## Auto Mode Fails Immediately
+
+If a session in Auto mode exits with an error within seconds of starting, your Claude Code version may be too old.
+
+1. Run `claude update` in your terminal to update to the latest version (v2.1.83+)
+2. Try creating the session again
+
+## File Paths Not Clickable
+
+File paths in terminal output should be underlined on hover and open in VS Code with `Cmd+click`.
+
+1. Ensure VS Code is installed and the `code` CLI is available
+2. Only file paths with extensions are detected (e.g., `src/main.ts:42:5`)
+3. Relative paths are resolved against the session's working directory
+
+## Persisted Sessions Not Appearing
+
+On app restart, finished sessions should appear in the sidebar with an "Exited" status.
+
+1. Check that the persistence directory exists: `~/Library/Application Support/com.xbridge.agent-orchestrator/sessions/`
+2. Sessions are only persisted after they exit — sessions that were forcefully killed during an app crash may not be saved
+3. Dismiss a persisted session to permanently delete it from disk
+
+## Image Drag & Drop Not Working
+
+Dragging images onto the terminal should type the file path into the session.
+
+1. The active session must not be a persisted (read-only) session
+2. Only image files are supported: PNG, JPG, JPEG, GIF, WebP, SVG, BMP, TIFF
+3. Both Finder file drags and browser image drags are supported

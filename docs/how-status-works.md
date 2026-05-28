@@ -71,7 +71,7 @@ SessionCard status dot updates
 
 ## State Machine
 
-Each session has a `StatusTracker` with 6 possible states:
+Each Claude session has a `StatusTracker` with 6 core states. Terminal sessions and persisted sessions use additional statuses.
 
 | State | Meaning | Dot Color |
 |-------|---------|-----------|
@@ -81,6 +81,8 @@ Each session has a `StatusTracker` with 6 possible states:
 | Needs Attention | Permission prompt or elicitation dialog | Orange |
 | Finished | Task completed | Checkmark |
 | Error | Process exited abnormally | Red |
+| Terminal | Plain terminal session (no status tracking) | Blue |
+| Exited | Persisted session restored from a previous run | Gray |
 
 ### Transitions
 
@@ -130,3 +132,30 @@ Each session has a `StatusTracker` with 6 possible states:
 | 400 | Bad request (invalid JSON, missing fields) |
 | 404 | Unknown session ID |
 | 405 | Not a POST request |
+
+## Subagent Tracking
+
+When Claude Code dispatches parallel subagents (via the Agent tool), it fires `SubagentStart` and `SubagentStop` hook events. These are forwarded through the same hook script and status server.
+
+### SubagentStart Payload
+
+```json
+{
+  "session_id": "claude-session-id",
+  "hook_event_name": "SubagentStart",
+  "agent_type": "code-reviewer",
+  "description": "Review plan chunk 1"
+}
+```
+
+### SubagentStop Payload
+
+```json
+{
+  "session_id": "claude-session-id",
+  "hook_event_name": "SubagentStop",
+  "agent_type": "code-reviewer"
+}
+```
+
+Each parent session maintains a `SubagentMap` that tracks active subagents. SubagentStop marks the oldest Working subagent of the matching type as Finished (FIFO ordering). The frontend displays each subagent with its own status dot, display name, and duration timer. Finished subagents are automatically cleaned up from the display after 30 seconds.
