@@ -181,10 +181,7 @@ brew install --cask agent-orchestrator
 ### Manual Download
 
 1. Download the latest `.dmg` from [**Releases**](https://github.com/stantonSB/Agent-Orchestrator/releases)
-2. Drag to Applications, then run:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Agent\ Orchestrator.app
-   ```
+2. Drag to Applications
 3. Open Agent Orchestrator
 
 > See [Installation Guide](docs/installation.md) for details on prerequisites and first launch.

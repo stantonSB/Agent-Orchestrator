@@ -23,18 +23,9 @@ brew upgrade --cask agent-orchestrator
 Download the latest `.dmg` from the [Releases](https://github.com/stantonSB/Agent-Orchestrator/releases) page.
 
 1. Open the `.dmg` and drag **Agent Orchestrator** to your Applications folder.
+2. Open the app normally.
 
-2. Since the app is not yet code-signed with an Apple Developer certificate, macOS Gatekeeper will block it on first launch. Run this command once to allow it:
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/"Agent Orchestrator.app"
-   ```
-
-3. Open the app normally. This only needs to be done once after downloading.
-
-> **Why is the xattr command needed?** When macOS downloads a file via a browser, it attaches a quarantine attribute. Unsigned apps with this attribute are blocked by Gatekeeper. The command above removes the quarantine flag.
->
-> **Note:** Homebrew installs skip this step — Homebrew handles quarantine removal automatically.
+The app is signed and notarized with an Apple Developer certificate, so macOS Gatekeeper will allow it to launch without any additional steps.
 
 ## First Launch
 
