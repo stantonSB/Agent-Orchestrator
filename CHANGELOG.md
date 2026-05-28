@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0] - 2026-05-28
+
+### Added
+- **Worktree cleanup on session close** — New checkbox in the close/dismiss session dialog to automatically clean up the git worktree when closing a session (#116)
+
+### Fixed
+- **Worktree cwd set eagerly** — Worktree working directory is now set at session creation time, preventing race conditions (#115)
+- **App quit behavior** — Use `window.close()` instead of `window.destroy()` for proper quit handling
+- **Worktree path isolation** — Worktree paths no longer contaminate the last-used directory preference
+- **Worktree dropdown visibility** — Worktree dropdown now shows correctly for finished/errored sessions and in the new session modal
+- **Close confirmation permission** — Added missing window destroy permission for the close confirmation dialog
+
 ## [1.8.0] - 2026-05-28
 
 ### Added
