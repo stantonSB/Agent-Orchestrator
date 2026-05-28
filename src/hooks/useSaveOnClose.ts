@@ -65,5 +65,5 @@ export async function saveSessionsAndQuit() {
   }
 
   isQuitting = true;
-  await appWindow.destroy();
+  await appWindow.close();
 }
