@@ -69,6 +69,8 @@ Choose how each session runs: **Claude** (default interactive), **Auto** (autono
 
 When Claude Code dispatches parallel subagents, each one appears with its own status dot and duration timer. See at a glance which subagents are working, finished, or need attention.
 
+![Subagent tracking](assets/feature-subagent-tracking.png)
+
 </td>
 </tr>
 <tr>
