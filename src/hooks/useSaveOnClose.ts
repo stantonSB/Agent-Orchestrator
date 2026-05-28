@@ -3,11 +3,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../stores/sessionStore";
 
+let isQuitting = false;
+
 export function useSaveOnClose() {
   useEffect(() => {
     const appWindow = getCurrentWindow();
 
     const unlisten = appWindow.onCloseRequested(async (event) => {
+      if (isQuitting) return;
       event.preventDefault();
       useSessionStore.getState().setShowQuitConfirm(true);
     });
@@ -61,5 +64,6 @@ export async function saveSessionsAndQuit() {
     console.error("Failed to save sessions on close:", err);
   }
 
+  isQuitting = true;
   await appWindow.destroy();
 }
