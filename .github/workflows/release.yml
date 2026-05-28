@@ -38,8 +38,8 @@ jobs:
 
       - name: Write App Store Connect API key
         run: |
-          mkdir -p ~/private_keys
-          echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+          mkdir -p "${{ runner.temp }}/private_keys"
+          echo "${{ secrets.APPLE_API_PRIVATE_KEY }}" > "${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
 
       - name: Build (no release)
         uses: tauri-apps/tauri-action@v0
@@ -52,7 +52,7 @@ jobs:
           # ── Notarization (App Store Connect API) ──
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         with:
           args: ${{ matrix.args }}
 
