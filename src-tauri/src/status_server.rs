@@ -156,6 +156,8 @@ fn handle_request(
         "subagent_stop".to_string()
     } else if hook_event_name == Some("SubagentStart") {
         "subagent_start".to_string()
+    } else if hook_event_name == Some("PreToolUse") {
+        "pre_tool_use".to_string()
     } else {
         let _ = request.respond(tiny_http::Response::empty(400));
         return;
@@ -651,6 +653,43 @@ mod tests {
             derive_display_name("Fix auth.rs\nAlso check tests"),
             Some("Fix auth".to_string())
         );
+    }
+
+    #[test]
+    fn test_pre_tool_use_returns_204_no_transition_but_processes_x_cwd() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("sess-ptu".into(), StatusTracker::new());
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let wt_cb: Arc<crate::pty_manager::WorktreeCwdCallback> =
+            Arc::new(Box::new(move |_id: String, cwd: String| {
+                if cwd.contains(".claude/worktrees/") {
+                    called_clone.store(true, Ordering::SeqCst);
+                }
+            }));
+
+        let (server, port) = StatusServer::start(
+            trackers,
+            noop_callback(),
+            noop_subagent_callback(),
+            wt_cb,
+        );
+
+        let body = r#"{"session_id":"cc-1","hook_event_name":"PreToolUse"}"#;
+        let request = format!(
+            "POST /status/sess-ptu HTTP/1.0\r\nContent-Length: {}\r\nContent-Type: application/json\r\nX-Cwd: /projects/app/.claude/worktrees/breezy-frog\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let line = raw_http(port, &request);
+        assert_eq!(status_code(&line), 204, "PreToolUse should not cause a status transition");
+
+        assert!(called.load(Ordering::SeqCst), "worktree cwd callback should have been called via PreToolUse");
+
+        server.stop();
     }
 
     #[test]
