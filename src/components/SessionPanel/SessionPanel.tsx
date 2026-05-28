@@ -72,7 +72,22 @@ export function SessionPanel({
   const subagents = useSessionStore((s) => s.subagents);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  const projectGroups = useMemo(() => groupSessionsByProject(sessions), [sessions]);
+  const projectGroups = useMemo(() => {
+    const topLevel = sessions.filter((s) => !s.parentSessionId);
+    return groupSessionsByProject(topLevel);
+  }, [sessions]);
+
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, SessionInfo[]>();
+    for (const s of sessions) {
+      if (s.parentSessionId) {
+        const existing = map.get(s.parentSessionId) ?? [];
+        existing.push(s);
+        map.set(s.parentSessionId, existing);
+      }
+    }
+    return map;
+  }, [sessions]);
 
   const toggleCollapse = useCallback((cwd: string) => {
     setCollapsedGroups((prev) => {
@@ -107,6 +122,7 @@ export function SessionPanel({
               onDismiss={dismissSession}
               onRename={renameSession}
               subagentsBySession={subagents}
+              childrenByParent={childrenByParent}
             />
           ))}
         </div>

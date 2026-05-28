@@ -157,6 +157,7 @@ pub type OutputCallback = Box<dyn Fn(SessionId, Vec<u8>) + Send + Sync + 'static
 pub type ExitCallback = Box<dyn Fn(SessionId, Option<u32>) + Send + Sync + 'static>;
 pub type StatusCallback = Box<dyn Fn(SessionId, String) + Send + Sync + 'static>;
 pub type SubagentCallback = Box<dyn Fn(SessionId, Vec<crate::subagent_tracker::SubagentStatusPayload>) + Send + Sync + 'static>;
+pub type WorktreeCwdCallback = Box<dyn Fn(SessionId, String) + Send + Sync + 'static>;
 
 // ---------------------------------------------------------------------------
 // Internal session state (lives exclusively on the manager thread)

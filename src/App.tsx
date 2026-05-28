@@ -115,10 +115,10 @@ export function App() {
     onOpenSettings: handleOpenSettings,
   });
 
-  const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => {
+  const handleCreateSession = async (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean, parentSessionId?: string) => {
     try {
       setIsModalOpen(false);
-      await createSession(name, cwd, sessionMode, pullLatest, isGitRepo);
+      await createSession(name, cwd, sessionMode, pullLatest, isGitRepo, parentSessionId);
     } catch (err) {
       addToast(
         `Failed to create session: ${err instanceof Error ? err.message : String(err)}`,

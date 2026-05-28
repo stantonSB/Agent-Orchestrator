@@ -48,3 +48,7 @@
   flex-direction: column;
   gap: 2px;
 }
+
+.childSession {
+  padding-left: 20px;
+}

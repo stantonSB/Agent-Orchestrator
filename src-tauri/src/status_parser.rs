@@ -41,6 +41,7 @@ impl SessionStatus {
 pub struct StatusTracker {
     status: SessionStatus,
     subagent_map: SubagentMap,
+    worktree_cwd: Option<String>,
 }
 
 impl StatusTracker {
@@ -48,11 +49,26 @@ impl StatusTracker {
         Self {
             status: SessionStatus::Starting,
             subagent_map: SubagentMap::new(),
+            worktree_cwd: None,
         }
     }
 
     pub fn status(&self) -> &SessionStatus {
         &self.status
+    }
+
+    pub fn worktree_cwd(&self) -> Option<&str> {
+        self.worktree_cwd.as_deref()
+    }
+
+    /// Set the worktree cwd once. Returns true if it was set (first time),
+    /// false if already set to the same value.
+    pub fn set_worktree_cwd(&mut self, cwd: &str) -> bool {
+        if self.worktree_cwd.as_deref() == Some(cwd) {
+            return false;
+        }
+        self.worktree_cwd = Some(cwd.to_string());
+        true
     }
 
     pub fn subagent_map(&self) -> &SubagentMap {

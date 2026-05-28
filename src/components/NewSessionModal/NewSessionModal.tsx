@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { SessionMode } from "../../types/session";
+import { useSessionStore } from "../../stores/sessionStore";
 import styles from "./NewSessionModal.module.css";
 
 const DEFAULT_NAME_STORAGE_KEY = "ao-default-session-name";
@@ -42,7 +43,7 @@ function getStoredMode(): SessionMode {
 interface NewSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean) => void;
+  onCreate: (name: string, cwd: string, sessionMode: SessionMode, pullLatest: boolean, isGitRepo: boolean, parentSessionId?: string) => void;
   lastUsedDirectory: string | null;
 }
 
@@ -59,6 +60,20 @@ export function NewSessionModal({
   const [pullLatest, setPullLatest] = useState(false);
   const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [selectedWorktreeSessionId, setSelectedWorktreeSessionId] = useState<string | null>(null);
+
+  const sessions = useSessionStore((s) => s.sessions);
+  const worktreeSessions = useMemo(() => {
+    if (sessionMode !== "terminal") return [];
+    return Array.from(sessions.values()).filter(
+      (s) =>
+        s.sessionType === "claude" &&
+        s.worktreeCwd &&
+        s.status !== "finished" &&
+        s.status !== "exited" &&
+        s.status !== "error"
+    );
+  }, [sessions, sessionMode]);
 
   useEffect(() => {
     if (isOpen) {
@@ -69,6 +84,7 @@ export function NewSessionModal({
       setSessionMode(getStoredMode());
       setPullLatest(false);
       setIsGitRepo(null);
+      setSelectedWorktreeSessionId(null);
       if (initialDir) {
         invoke<boolean>("check_is_git_repo", { cwd: initialDir })
           .then(setIsGitRepo)
@@ -77,6 +93,10 @@ export function NewSessionModal({
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, lastUsedDirectory]);
+
+  useEffect(() => {
+    setSelectedWorktreeSessionId(null);
+  }, [sessionMode]);
 
   useEffect(() => {
     if (!directory) {
@@ -104,25 +124,37 @@ export function NewSessionModal({
 
   const effectivePullLatest = isGitRepo === false ? false : pullLatest;
 
+  const selectedWorktreeSession = selectedWorktreeSessionId
+    ? sessions.get(selectedWorktreeSessionId)
+    : null;
+  const effectiveDirectory = selectedWorktreeSession?.worktreeCwd ?? directory;
+
   const handleCreate = () => {
     const trimmedName = name.trim();
     const finalName = trimmedName || getDefaultSessionName(getNextSessionNumber());
-    if (!directory) return;
+    if (!effectiveDirectory) return;
     localStorage.setItem(STORAGE_KEY, sessionMode);
-    localStorage.setItem(DIR_STORAGE_KEY, directory);
-    onCreate(finalName, directory, sessionMode, effectivePullLatest, isGitRepo ?? false);
+    if (directory) localStorage.setItem(DIR_STORAGE_KEY, directory);
+    onCreate(
+      finalName,
+      effectiveDirectory,
+      sessionMode,
+      effectivePullLatest,
+      isGitRepo ?? false,
+      selectedWorktreeSessionId ?? undefined
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       onClose();
     }
-    if (e.key === "Enter" && directory) {
+    if (e.key === "Enter" && effectiveDirectory) {
       handleCreate();
     }
   };
 
-  const isValid = directory !== null;
+  const isValid = effectiveDirectory !== null;
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -154,15 +186,16 @@ export function NewSessionModal({
           <label className={styles.label}>Project Directory</label>
           <div className={styles.folderRow}>
             <div
-              className={`${styles.folderPath} ${directory ? styles.hasValue : ""}`}
-              title={directory ?? undefined}
+              className={`${styles.folderPath} ${effectiveDirectory ? styles.hasValue : ""} ${selectedWorktreeSessionId ? styles.disabled : ""}`}
+              title={effectiveDirectory ?? undefined}
             >
-              {directory ?? "No directory selected"}
+              {effectiveDirectory ?? "No directory selected"}
             </div>
             <button
               className={styles.browseButton}
               onClick={handleBrowse}
               type="button"
+              disabled={!!selectedWorktreeSessionId}
             >
               Browse
             </button>
@@ -186,6 +219,27 @@ export function NewSessionModal({
             <option value="terminal">Terminal</option>
           </select>
         </div>
+
+        {sessionMode === "terminal" && worktreeSessions.length > 0 && (
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="worktree-select">
+              Worktree
+            </label>
+            <select
+              id="worktree-select"
+              className={styles.select}
+              value={selectedWorktreeSessionId ?? ""}
+              onChange={(e) => setSelectedWorktreeSessionId(e.target.value || null)}
+            >
+              <option value="">None</option>
+              {worktreeSessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <label className={`${styles.checkboxRow} ${isGitRepo === false ? styles.checkboxDisabled : ""}`}>
           <input

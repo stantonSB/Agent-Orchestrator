@@ -121,6 +121,43 @@ describe("SessionPanel", () => {
     expect(headers.length).toBe(2);
   });
 
+  it("does not create separate project group for child terminal sessions", () => {
+    const sessions: SessionInfo[] = [
+      {
+        id: "parent-1",
+        name: "Claude Parent",
+        status: "working",
+        createdAt: 1000,
+        cwd: "/projects/app",
+        sessionType: "claude",
+        isGitRepo: true,
+      },
+      {
+        id: "child-1",
+        name: "Terminal Child",
+        status: "terminal",
+        createdAt: 2000,
+        cwd: "/projects/app/.claude/worktrees/breezy-frog",
+        sessionType: "terminal",
+        isGitRepo: false,
+        parentSessionId: "parent-1",
+      },
+    ];
+    render(
+      <SessionPanel
+        sessions={sessions}
+        activeSessionId="parent-1"
+        onSessionClick={vi.fn()}
+        onNewSession={vi.fn()}
+      />
+    );
+    // Should only show the "app" group, not "breezy-frog"
+    expect(screen.getByText("app")).toBeTruthy();
+    expect(screen.queryByText("breezy-frog")).toBeNull();
+    // Child should still be visible (rendered under parent)
+    expect(screen.getByText("Terminal Child")).toBeTruthy();
+  });
+
   it("renders subagent entries beneath parent session", async () => {
     const { useSessionStore } = await import("../../stores/sessionStore");
     useSessionStore.setState({

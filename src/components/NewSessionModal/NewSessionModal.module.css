@@ -105,6 +105,10 @@
   color: #e5e7eb;
 }
 
+.folderPath.disabled {
+  opacity: 0.5;
+}
+
 .browseButton {
   padding: 8px 14px;
   background: rgba(255, 255, 255, 0.06);
@@ -120,6 +124,11 @@
 
 .browseButton:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.browseButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .checkboxRow {

@@ -14,6 +14,7 @@ interface ProjectGroupProps {
   onDismiss: (id: string) => void;
   onRename?: (id: string, name: string) => void;
   subagentsBySession: Map<string, SubagentStatus[]>;
+  childrenByParent?: Map<string, SessionInfo[]>;
 }
 
 export function ProjectGroup({
@@ -27,6 +28,7 @@ export function ProjectGroup({
   onDismiss,
   onRename,
   subagentsBySession,
+  childrenByParent,
 }: ProjectGroupProps) {
   return (
     <div className={styles.group}>
@@ -62,6 +64,18 @@ export function ProjectGroup({
                 onRename={onRename}
               />
               <SubagentList subagents={subagentsBySession.get(session.id) ?? []} />
+              {childrenByParent?.get(session.id)?.map((child) => (
+                <div key={child.id} className={styles.childSession}>
+                  <SessionCard
+                    session={child}
+                    isActive={child.id === activeSessionId}
+                    onClick={onSessionClick}
+                    onClose={onClose}
+                    onDismiss={onDismiss}
+                    onRename={onRename}
+                  />
+                </div>
+              ))}
             </div>
           ))}
         </div>
