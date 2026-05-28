@@ -24,13 +24,13 @@ if [ -n "$AO_STATUS_PORT" ] && [ -n "$AO_SESSION_ID" ]; then
 fi
 ```
 
-The script runs inside Claude Code's process context, so `$(pwd)` resolves to the worktree path after Claude has created and entered it.
+The script runs inside Claude Code's process context, so `$(pwd)` resolves to the worktree path after Claude has created and entered it. Claude Code hooks are invoked as child processes that inherit the parent's cwd. This assumption is validated by the fact that the existing Stop hook already sends `cwd` from the same context. For Notification hooks (which don't include `cwd` in their JSON body), we rely on the same inherited-cwd behavior via the `X-Cwd` header.
 
 **Status server:** Extract the `X-Cwd` header from every incoming request. If the path contains `.claude/worktrees/`, store it on the session's `StatusTracker` as `worktree_cwd: Option<String>`. Non-worktree paths are ignored.
 
-**Tauri event:** When a worktree cwd is first set on a tracker, emit a `session-worktree-cwd` event to the frontend with `{ sessionId, worktreeCwd }`. The session store listens and updates the session's `worktreeCwd` field.
+**Tauri event emission:** Add a new callback `on_worktree_cwd: Arc<WorktreeCwdCallback>` to `StatusServer::start`, following the same pattern as the existing `on_status` and `on_subagents` callbacks. When a worktree cwd is first set on a tracker, invoke this callback. The Tauri side wires it to emit a `session-worktree-cwd` event with `{ sessionId, worktreeCwd }`.
 
-**Hook installer:** Bump the hook script content so `is_already_installed` detects the old version and rewrites it with the `X-Cwd` header.
+**Hook installer:** The current `is_already_installed` function checks for script existence and permissions but not content. Add a content check: compare the existing script against `HOOK_SCRIPT` and return `false` if they differ. This ensures updating `HOOK_SCRIPT` with the `X-Cwd` header triggers a rewrite for existing installations.
 
 ### 2. Data Model Changes
 
@@ -38,9 +38,25 @@ The script runs inside Claude Code's process context, so `$(pwd)` resolves to th
 - `parentSessionId: string | null` — links a child terminal to its parent Claude session. Default `null`.
 - `worktreeCwd: string | null` — the worktree path, populated from hook events. Default `null`.
 
-**Backend per-session state** — add `worktree_cwd: Option<String>` to the PTY manager's session data, updated when the status server receives a worktree cwd.
+Both fields are **frontend-only**. `parentSessionId` is set at creation time in the session store's `createSession` method. `worktreeCwd` is set when the `session-worktree-cwd` event arrives.
 
-**`create_session` IPC command** — add optional `parent_session_id: Option<String>` parameter, passed through for frontend use.
+**Backend:** `worktree_cwd` is stored **only** on `StatusTracker` (since the status server receives hook events). No changes needed to the PTY manager's `Session` struct or the `create_session` IPC command signature.
+
+**Persistence:** Neither field is persisted. On app restart, sessions restore with `parentSessionId: null` and `worktreeCwd: null`. Worktree paths may not exist after restart, and child terminal sessions are ephemeral by design.
+
+**`createSession` store method** gains an optional parameter:
+```typescript
+createSession: async (
+  name: string,
+  cwd: string,
+  sessionMode?: SessionMode,
+  pullLatest?: boolean,
+  isGitRepo?: boolean,
+  parentSessionId?: string  // new
+) => ...
+```
+
+When `parentSessionId` is provided, the constructed `SessionInfo` includes it.
 
 ### 3. New Session Modal
 
@@ -61,40 +77,44 @@ When any Claude mode is selected, the worktree dropdown disappears.
 
 ### 4. Sidebar Nesting
 
-Sessions with a `parentSessionId` are excluded from normal project-group rendering. Instead, they render indented (16-20px) directly below their parent's `SessionCard`.
+Child sessions (those with `parentSessionId`) are filtered out **before** passing sessions to `groupSessionsByProject` in `SessionPanel`. This prevents child sessions from creating their own project groups based on their worktree cwd.
 
-The parent `SessionCard` checks for children (sessions where `parentSessionId === thisSession.id`) and renders them inline.
+```typescript
+const topLevelSessions = sessions.filter(s => !s.parentSessionId);
+const groups = groupSessionsByProject(topLevelSessions);
+```
+
+Within each `ProjectGroup`, the parent `SessionCard` checks for children (sessions where `parentSessionId === thisSession.id`) and renders them indented (16-20px) directly below.
 
 ### 5. Cascading Close
 
 When a parent Claude session is closed:
 
 1. The session store finds all sessions where `parentSessionId === closingSessionId`.
-2. Each child is closed first via `close_session` IPC (kills the PTY process).
-3. Then the parent is closed.
+2. All children are closed in parallel via `Promise.all(children.map(c => invoke("close_session", { id: c.id })))`.
+3. All child sessions and the parent are removed from the store atomically in a single `set()` call to avoid intermediate states (e.g. briefly selecting a child as active session).
+4. Then the parent's `close_session` IPC is called.
 
-This logic lives in the frontend session store's `closeSession` method — no backend cascade needed.
+This logic lives in the frontend session store's `closeSession` method.
 
 ### 6. Backend Changes Summary
 
 | Component | Change |
 |---|---|
 | Hook script | Add `X-Cwd: $(pwd)` header |
-| Hook installer | Bump script content to trigger reinstall |
-| Status server | Extract `X-Cwd` header, store on tracker, emit Tauri event |
+| Hook installer | Add script content check to `is_already_installed` |
+| Status server | Extract `X-Cwd` header, store on tracker, invoke new `on_worktree_cwd` callback |
 | StatusTracker | Add `worktree_cwd: Option<String>` field |
-| `create_session` command | Add optional `parent_session_id` parameter |
-| PTY manager session data | Store `worktree_cwd` and `parent_session_id` |
 
 ### 7. Frontend Changes Summary
 
 | Component | Change |
 |---|---|
 | `SessionInfo` type | Add `parentSessionId`, `worktreeCwd` fields |
-| Session store | Listen for `session-worktree-cwd` events, cascade close logic |
+| Session store | Add `parentSessionId` param to `createSession`, listen for `session-worktree-cwd` events, cascade close logic |
 | `NewSessionModal` | Conditional worktree dropdown when Terminal selected |
-| `SessionPanel` / `ProjectGroup` | Filter out child sessions from normal grouping |
-| `SessionCard` | Render child sessions indented below parent |
+| `SessionPanel` | Filter out child sessions before grouping |
+| `SessionCard` / `ProjectGroup` | Render child sessions indented below parent |
 
 ## Out of Scope
 
@@ -102,3 +122,4 @@ This logic lives in the frontend session store's `closeSession` method — no ba
 - Multiple terminal sessions per worktree (allowed — each gets its own parent-child link)
 - Worktree cleanup on session close (Claude Code manages its own worktrees)
 - Backend validation of parent-child relationships
+- Persisting `parentSessionId` or `worktreeCwd` across app restarts
