@@ -42,6 +42,8 @@ Hook-driven detection shows Working, Idle, Needs Attention, Finished, and Error 
 
 Sessions are automatically grouped by working directory in a collapsible sidebar. See all your active projects at a glance.
 
+![Project grouping in sidebar](assets/feature-project-grouping.png)
+
 </td>
 <td width="50%" valign="top">
 
@@ -57,6 +59,8 @@ Each session runs `claude --worktree` by default (for git repos), giving it an i
 ### Session Modes
 
 Choose how each session runs: **Claude** (default interactive), **Auto** (autonomous mode), **Skip permissions**, **Plan mode**, or **Terminal** (plain shell). Mode selection is remembered between sessions.
+
+![Session mode dropdown](assets/feature-session-modes.png)
 
 </td>
 <td width="50%" valign="top">
@@ -81,6 +85,8 @@ Finished sessions are automatically saved with their scrollback history. Relaunc
 
 Drag images from Finder or a browser directly onto the terminal. The file path is typed into the session automatically — perfect for sharing screenshots with Claude.
 
+![Image drag and drop overlay](assets/feature-image-drag-drop.jpeg)
+
 </td>
 </tr>
 <tr>
@@ -96,6 +102,8 @@ Press `Cmd+F` to search within any terminal's scrollback. Navigate matches with 
 ### Clickable File Paths
 
 File paths in terminal output are clickable — `Cmd+click` any path to open it in VS Code at the correct line and column. Supports relative and absolute paths.
+
+![Clickable file paths in terminal](assets/feature-clickable-file-paths.png)
 
 </td>
 </tr>
@@ -121,6 +129,8 @@ Full keyboard navigation: `Cmd+T` new session, `Cmd+W` close, `Cmd+1-9` switch b
 ### Session Management
 
 Rename sessions (double-click or context menu), close with confirmation dialogs, dismiss finished sessions, and resize the sidebar by dragging. Duration timers track how long each session has been running.
+
+![Session management context menu](assets/feature-session-management.png)
 
 </td>
 <td width="50%" valign="top">
