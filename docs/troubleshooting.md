@@ -36,13 +36,7 @@ Claude Code may have fired a `permission_prompt` or `elicitation_dialog` hook. T
 
 ## App Won't Open (macOS Gatekeeper)
 
-The app is not code-signed. macOS blocks unsigned apps downloaded from the internet.
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Agent\ Orchestrator.app
-```
-
-This removes the quarantine flag. You only need to run this once after downloading. See [Installation](installation.md) for details.
+The app is signed and notarized, so Gatekeeper should allow it to open without issues. If you still encounter a warning, try re-downloading the latest `.dmg` from [Releases](https://github.com/stantonSB/Agent-Orchestrator/releases) — older pre-signed builds may require the quarantine workaround. See [Installation](installation.md) for details.
 
 ## Sessions Not Creating
 
