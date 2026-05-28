@@ -16,10 +16,11 @@ pub struct SessionInfo {
     pub created_at_epoch_ms: u64,
     pub session_type: String,
     pub is_git_repo: bool,
+    pub worktree_cwd: Option<String>,
 }
 
-impl From<SessionListEntry> for SessionInfo {
-    fn from(e: SessionListEntry) -> Self {
+impl SessionInfo {
+    fn from_entry(e: SessionListEntry, worktree_cwd: Option<String>) -> Self {
         Self {
             id: e.id,
             name: e.name,
@@ -30,6 +31,7 @@ impl From<SessionListEntry> for SessionInfo {
                 pty_manager::SessionType::Terminal => "terminal".to_string(),
             },
             is_git_repo: e.is_git_repo,
+            worktree_cwd,
         }
     }
 }
@@ -140,7 +142,14 @@ pub fn rename_session(
 pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     match state.pty.list() {
         PtyResponse::Sessions(entries) => {
-            Ok(entries.into_iter().map(SessionInfo::from).collect())
+            let trackers = state.status_trackers.lock()
+                .map_err(|e| format!("Failed to lock status trackers: {e}"))?;
+            Ok(entries.into_iter().map(|e| {
+                let worktree_cwd = trackers
+                    .get(&e.id)
+                    .and_then(|t| t.worktree_cwd().map(|s| s.to_string()));
+                SessionInfo::from_entry(e, worktree_cwd)
+            }).collect())
         }
         PtyResponse::Error(msg) => Err(msg),
         other => Err(format!("Unexpected response: {:?}", other)),
@@ -217,6 +226,18 @@ pub fn get_session_status(
         .lock()
         .map_err(|e| format!("Failed to lock status trackers: {e}"))?;
     Ok(trackers.get(&id).map(|t| t.status().as_str().to_string()))
+}
+
+#[tauri::command]
+pub fn get_session_worktree_cwd(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<String>, String> {
+    let trackers = state
+        .status_trackers
+        .lock()
+        .map_err(|e| format!("Failed to lock status trackers: {e}"))?;
+    Ok(trackers.get(&id).and_then(|t| t.worktree_cwd().map(|s| s.to_string())))
 }
 
 #[tauri::command]

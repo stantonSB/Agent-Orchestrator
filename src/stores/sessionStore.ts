@@ -273,6 +273,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           console.warn("Failed to fetch initial session status:", err);
         }
       }
+
+      try {
+        const worktreeCwd = await invoke<string | null>("get_session_worktree_cwd", { id });
+        if (worktreeCwd) {
+          get().updateWorktreeCwd(id, worktreeCwd);
+        }
+      } catch {
+        // Non-critical — worktree CWD will arrive via event if available.
+      }
     }
   },
 
