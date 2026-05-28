@@ -18,6 +18,7 @@ export function useInitializeSessions() {
           created_at_epoch_ms: number;
           session_type: string;
           is_git_repo: boolean;
+          worktree_cwd: string | null;
         }>>("list_sessions");
         for (const raw of existing) {
           const sessionType = raw.session_type === "terminal" ? "terminal" as const : "claude" as const;
@@ -29,6 +30,7 @@ export function useInitializeSessions() {
             status: sessionType === "terminal" ? "terminal" : "idle",
             sessionType,
             isGitRepo: raw.is_git_repo,
+            worktreeCwd: raw.worktree_cwd,
           };
           addSession(session);
           setupEventListeners(session.id);

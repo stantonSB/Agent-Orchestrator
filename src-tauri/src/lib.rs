@@ -146,6 +146,7 @@ pub fn run() {
             commands::list_sessions,
             commands::check_is_git_repo,
             commands::get_session_status,
+            commands::get_session_worktree_cwd,
             commands::save_sessions,
             commands::save_single_session,
             commands::list_persisted_sessions,
