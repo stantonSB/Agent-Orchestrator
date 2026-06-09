@@ -1,29 +1,30 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useSessionStore } from "../stores/sessionStore";
-
-let isQuitting = false;
 
 export function useSaveOnClose() {
   useEffect(() => {
     const appWindow = getCurrentWindow();
 
-    const unlisten = appWindow.onCloseRequested(async (event) => {
-      if (isQuitting) return;
+    const unlistenClose = appWindow.onCloseRequested(async (event) => {
       event.preventDefault();
       useSessionStore.getState().setShowQuitConfirm(true);
     });
 
+    const unlistenQuit = listen("quit-requested", () => {
+      useSessionStore.getState().setShowQuitConfirm(true);
+    });
+
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenClose.then((fn) => fn());
+      unlistenQuit.then((fn) => fn());
     };
   }, []);
 }
 
 export async function saveSessionsAndQuit() {
-  const appWindow = getCurrentWindow();
-
   try {
     const state = useSessionStore.getState();
     const sessions = Array.from(state.sessions.values());
@@ -64,6 +65,5 @@ export async function saveSessionsAndQuit() {
     console.error("Failed to save sessions on close:", err);
   }
 
-  isQuitting = true;
-  await appWindow.close();
+  await invoke("quit_app");
 }

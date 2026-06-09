@@ -403,6 +403,11 @@ pub fn remove_worktree(worktree_path: String, force: bool) -> Result<WorktreeRem
 }
 
 #[tauri::command]
+pub fn quit_app(app_handle: tauri::AppHandle) {
+    app_handle.exit(0);
+}
+
+#[tauri::command]
 pub fn save_dropped_image(data: Vec<u8>, extension: String) -> Result<String, String> {
     const ALLOWED: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff"];
     let ext = extension.to_lowercase();

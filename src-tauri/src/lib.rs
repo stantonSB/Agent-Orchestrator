@@ -154,6 +154,7 @@ pub fn run() {
             commands::delete_persisted_session,
             commands::save_dropped_image,
             commands::remove_worktree,
+            commands::quit_app,
         ])
         .on_window_event(|_window, _event| {
             // Shutdown moved to RunEvent::Exit to allow frontend save-on-close
@@ -161,11 +162,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app_handle.try_state::<AppState>() {
-                    state.pty.shutdown();
-                    state.status_server.stop();
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    api.prevent_exit();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.emit("quit-requested", ());
+                    }
                 }
+                tauri::RunEvent::Exit => {
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        state.pty.shutdown();
+                        state.status_server.stop();
+                    }
+                }
+                _ => {}
             }
         });
 }
