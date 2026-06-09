@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.0] - 2026-06-09
+
+### Added
+- **Cmd+Q quit confirmation** — Pressing Cmd+Q on macOS now routes through the quit confirmation dialog instead of exiting immediately, matching the behaviour of the window close button (#121)
+
 ## [1.9.1] - 2026-05-28
 
 ### Added
