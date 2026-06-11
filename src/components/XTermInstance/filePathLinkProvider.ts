@@ -77,7 +77,15 @@ export class FilePathLinkProvider implements ILinkProvider {
       }
     }
 
-    let vscodeUrl = `vscode://file${absolutePath}`;
+    // Percent-encode each segment so the URL stays valid when the path
+    // contains spaces or other special characters (the session cwd is not
+    // constrained by FILE_PATH_REGEX).
+    const encodedPath = absolutePath
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
+
+    let vscodeUrl = `vscode://file${encodedPath}`;
     if (lineColMatch) {
       vscodeUrl += `:${lineColMatch[1]}`;
       if (lineColMatch[2]) {
@@ -85,10 +93,11 @@ export class FilePathLinkProvider implements ILinkProvider {
       }
     }
 
-    openUrl(vscodeUrl).catch(() => {
+    openUrl(vscodeUrl).catch((err) => {
+      const reason = err instanceof Error ? err.message : String(err);
       useSessionStore
         .getState()
-        .addToast(`Could not open file: ${filePath}`, "error");
+        .addToast(`Could not open file: ${filePath} (${reason})`, "error");
     });
   }
 }
