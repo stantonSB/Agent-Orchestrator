@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0] - 2026-06-11
+
+### Fixed
+- **Cmd+Q quit confirmation** — Cmd+Q now reliably shows the quit confirmation dialog instead of exiting the app immediately (#122)
+- **Cmd+Click file links** — Cmd+clicking file paths now opens them in VS Code; paths containing spaces are handled correctly (#122)
+- **/voice microphone access** — Declared microphone usage so `/voice` works in sessions; macOS now prompts for mic permission instead of silently denying it (#122)
+
 ## [1.10.0] - 2026-06-09
 
 ### Added
