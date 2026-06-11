@@ -44,6 +44,7 @@
     "longDescription": "Agent Orchestrator is a desktop application for managing multiple AI agent terminal sessions with real-time status monitoring.",
     "macOS": {
       "signingIdentity": "Developer ID Application: Xbridge Limited (7QCB55LU27)",
+      "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "10.15",
       "dmg": {
         "appPosition": {

@@ -7,11 +7,12 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(() => Promise.resolve()),
 }));
 
-// Mock session store
+// Mock session store with a shared spy so tests can assert on toasts
+const { addToastMock } = vi.hoisted(() => ({ addToastMock: vi.fn() }));
 vi.mock("../../stores/sessionStore", () => ({
   useSessionStore: {
     getState: () => ({
-      addToast: vi.fn(),
+      addToast: addToastMock,
     }),
   },
 }));
@@ -232,6 +233,71 @@ describe("FilePathLinkProvider", () => {
           );
           resolve();
         });
+      });
+    });
+
+    it("keeps line-only suffix in the URL", async () => {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      vi.mocked(openUrl).mockClear();
+      const terminal = createMockTerminal("Error in src/file.ts:42");
+      const cwdRef = { current: "/project" };
+      const provider = new FilePathLinkProvider(terminal, cwdRef);
+
+      await new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links) => {
+          const event = { metaKey: true } as MouseEvent;
+          links![0].activate(event, links![0].text);
+          expect(openUrl).toHaveBeenCalledWith(
+            "vscode://file/project/src/file.ts:42",
+          );
+          resolve();
+        });
+      });
+    });
+
+    it("percent-encodes special characters from the cwd", async () => {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      vi.mocked(openUrl).mockClear();
+      const terminal = createMockTerminal("See src/file.ts for details");
+      const cwdRef = { current: "/Users/test/My Projects" };
+      const provider = new FilePathLinkProvider(terminal, cwdRef);
+
+      await new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links) => {
+          const event = { metaKey: true } as MouseEvent;
+          links![0].activate(event, links![0].text);
+          expect(openUrl).toHaveBeenCalledWith(
+            "vscode://file/Users/test/My%20Projects/src/file.ts",
+          );
+          resolve();
+        });
+      });
+    });
+
+    it("shows a toast with the underlying error when openUrl rejects", async () => {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      vi.mocked(openUrl).mockClear();
+      vi.mocked(openUrl).mockRejectedValueOnce(
+        "url not allowed on the configured scope",
+      );
+      addToastMock.mockClear();
+      const terminal = createMockTerminal("See src/file.ts for details");
+      const cwdRef = { current: "/project" };
+      const provider = new FilePathLinkProvider(terminal, cwdRef);
+
+      await new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links) => {
+          const event = { metaKey: true } as MouseEvent;
+          links![0].activate(event, links![0].text);
+          resolve();
+        });
+      });
+
+      await vi.waitFor(() => {
+        expect(addToastMock).toHaveBeenCalledWith(
+          "Could not open file: src/file.ts (url not allowed on the configured scope)",
+          "error",
+        );
       });
     });
   });
