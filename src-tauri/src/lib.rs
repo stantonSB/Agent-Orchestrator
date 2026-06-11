@@ -25,7 +25,49 @@ pub fn run() {
     // avoids the macOS "multi-threaded process forked" crash.
     pty_manager::warm_shell_env();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // On macOS the default app menu's Quit item sends the native
+    // `terminate:` selector, which kills the process without ever firing
+    // RunEvent::ExitRequested — so Cmd+Q bypassed the quit confirmation
+    // dialog. Replace it with a custom item that routes through the same
+    // "quit-requested" event the frontend already listens for.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(|handle| {
+            let menu = tauri::menu::Menu::default(handle)?;
+            if let Some(tauri::menu::MenuItemKind::Submenu(app_menu)) =
+                menu.items()?.into_iter().next()
+            {
+                let items = app_menu.items()?;
+                for (idx, item) in items.iter().enumerate() {
+                    if let tauri::menu::MenuItemKind::Predefined(predefined) = item {
+                        if predefined.text()?.starts_with("Quit") {
+                            app_menu.remove_at(idx)?;
+                            break;
+                        }
+                    }
+                }
+                let quit_item = tauri::menu::MenuItem::with_id(
+                    handle,
+                    "request-quit",
+                    format!("Quit {}", handle.package_info().name),
+                    true,
+                    Some("CmdOrCtrl+Q"),
+                )?;
+                app_menu.append(&quit_item)?;
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app_handle, event| {
+            if event.id().as_ref() == "request-quit" {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.emit("quit-requested", ());
+                }
+            }
+        });
+
+    builder
         .setup(|app| {
             let handle_for_output = app.handle().clone();
             let handle_for_exit = app.handle().clone();
@@ -163,10 +205,16 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
-                tauri::RunEvent::ExitRequested { api, .. } => {
-                    api.prevent_exit();
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.emit("quit-requested", ());
+                tauri::RunEvent::ExitRequested { api, code, .. } => {
+                    // A confirmed quit goes through quit_app -> exit(0), which
+                    // sets `code` — let it through, or the app could never
+                    // exit. Only window-close-driven requests (code: None)
+                    // get redirected to the confirmation dialog.
+                    if code.is_none() {
+                        api.prevent_exit();
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.emit("quit-requested", ());
+                        }
                     }
                 }
                 tauri::RunEvent::Exit => {
