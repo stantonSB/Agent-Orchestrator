@@ -28,7 +28,8 @@ export interface CloseSessionArgs {
 
 export interface WriteToSessionArgs {
   id: string;
-  data: number[];
+  /** Base64-encoded keystroke bytes (same transport as PTY output). */
+  data: string;
 }
 
 export interface ResizeSessionArgs {

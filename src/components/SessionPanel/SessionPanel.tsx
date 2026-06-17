@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties } from "react";
 import type { SessionInfo } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -101,6 +101,17 @@ export function SessionPanel({
     });
   }, []);
 
+  // One stable toggle callback per project, so memoized ProjectGroups don't see
+  // a new `onToggleCollapse` identity on every render.
+  const toggleHandlers = useRef(new Map<string, () => void>());
+  const getToggleHandler = useCallback((cwd: string) => {
+    const existing = toggleHandlers.current.get(cwd);
+    if (existing) return existing;
+    const handler = () => toggleCollapse(cwd);
+    toggleHandlers.current.set(cwd, handler);
+    return handler;
+  }, [toggleCollapse]);
+
   return (
     <div className={styles.panel} style={style}>
       <div className={styles.header}>Sessions</div>
@@ -116,7 +127,7 @@ export function SessionPanel({
               sessions={group.sessions}
               activeSessionId={activeSessionId}
               isCollapsed={collapsedGroups.has(group.cwd)}
-              onToggleCollapse={() => toggleCollapse(group.cwd)}
+              onToggleCollapse={getToggleHandler(group.cwd)}
               onSessionClick={onSessionClick}
               onClose={closeSession}
               onDismiss={dismissSession}

@@ -93,11 +93,14 @@ pub fn run() {
 
             let on_output: pty_manager::OutputCallback =
                 Box::new(move |id, data| {
+                    // Ship raw PTY bytes as a single base64 string rather than
+                    // a JSON array of integers. The array form bloated each
+                    // chunk ~3-4x and forced a slow number[]-parse on the JS
+                    // side; base64 is one compact string with a fast decode.
+                    use base64::Engine as _;
                     let event_name = format!("session-output-{}", id);
-                    let _ = handle_for_output.emit(
-                        &event_name,
-                        serde_json::json!({ "data": data }),
-                    );
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+                    let _ = handle_for_output.emit(&event_name, encoded);
                 });
 
             let on_exit: pty_manager::ExitCallback =

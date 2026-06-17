@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useImperativeHandle,
   useEffect,
   useRef,
@@ -45,13 +46,14 @@ interface XTermInstanceProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>(
+export const XTermInstance = memo(forwardRef<XTermInstanceHandle, XTermInstanceProps>(
   function XTermInstance({ sessionId: _sessionId, cwd, onData, onResize, mockMode, isActive, readOnly }, ref) {
     const { containerRef, write, fit, getTerminal, findNext, findPrevious, clearSearch } = useTerminal({
       onData: readOnly ? undefined : onData,
       onResize: readOnly ? undefined : onResize,
       mockMode,
       cwd,
+      isActive,
     });
 
     // Expose handle to parent
@@ -108,4 +110,4 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
 
     return <div className={className} ref={containerRef} onClick={() => getTerminal()?.focus()} />;
   },
-);
+));

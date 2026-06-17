@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { SessionInfo, SubagentStatus } from "../../types/session";
 import { SessionCard } from "../SessionCard/SessionCard";
 import { SubagentList } from "../SubagentList/SubagentList";
@@ -17,7 +18,7 @@ interface ProjectGroupProps {
   childrenByParent?: Map<string, SessionInfo[]>;
 }
 
-export function ProjectGroup({
+function ProjectGroupComponent({
   projectName,
   sessions,
   activeSessionId,
@@ -83,3 +84,5 @@ export function ProjectGroup({
     </div>
   );
 }
+
+export const ProjectGroup = memo(ProjectGroupComponent);

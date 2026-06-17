@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { memo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfo, SessionStatus } from "../../types/session";
 import { ActivityPulse } from "../ActivityPulse/ActivityPulse";
@@ -42,7 +42,7 @@ function isRunning(status: SessionStatus): boolean {
   return status !== "finished" && status !== "error" && status !== "exited";
 }
 
-export function SessionCard({ session, isActive, onClick, onClose, onDismiss, onRename }: SessionCardProps) {
+function SessionCardComponent({ session, isActive, onClick, onClose, onDismiss, onRename }: SessionCardProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -198,3 +198,9 @@ export function SessionCard({ session, isActive, onClick, onClose, onDismiss, on
     </>
   );
 }
+
+// Memoized so a single session's status change re-renders only its own card.
+// The store updates only the changed session's object (others keep their
+// reference), and the parent passes referentially-stable callbacks, so every
+// other card's props compare equal and skip re-rendering.
+export const SessionCard = memo(SessionCardComponent);

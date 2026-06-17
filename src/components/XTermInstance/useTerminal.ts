@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { FilePathLinkProvider } from "./filePathLinkProvider";
 import "@xterm/xterm/css/xterm.css";
@@ -50,6 +51,8 @@ export interface UseTerminalOptions {
   mockMode?: boolean;
   /** Current working directory for the session. */
   cwd?: string;
+  /** Whether this terminal is the visible / active one. */
+  isActive?: boolean;
 }
 
 export interface UseTerminalReturn {
@@ -74,12 +77,13 @@ export interface UseTerminalReturn {
 // ---------------------------------------------------------------------------
 
 export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn {
-  const { onData, onResize, mockMode = false, cwd } = options;
+  const { onData, onResize, mockMode = false, cwd, isActive = true } = options;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const mockIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -105,7 +109,10 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       fontSize: 13,
       lineHeight: 1.3,
-      cursorBlink: true,
+      // Only the active terminal blinks its cursor — a blink timer on every
+      // hidden terminal is N periodic repaints nobody can see. Toggled below
+      // based on `isActive`.
+      cursorBlink: false,
       cursorStyle: "bar",
       scrollback: 10_000,
       allowProposedApi: true,
@@ -136,6 +143,28 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     // Mount
     term.open(container);
+
+    // GPU-accelerated rendering. The default DOM renderer does heavy layout
+    // work on the main thread under high-throughput output with a large
+    // scrollback. WebGL offloads that to the GPU and naturally does little
+    // work when its canvas isn't visible (helps the many-background-terminals
+    // case). Fall back gracefully to the DOM renderer if a WebGL context can't
+    // be created, or if the context is lost later (e.g. GPU reset).
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        // Disposing the addon makes xterm fall back to the DOM renderer.
+        webglAddon.dispose();
+        if (webglAddonRef.current === webglAddon) {
+          webglAddonRef.current = null;
+        }
+      });
+      term.loadAddon(webglAddon);
+      webglAddonRef.current = webglAddon;
+    } catch (err) {
+      console.warn("WebGL renderer unavailable, using DOM renderer:", err);
+      webglAddonRef.current = null;
+    }
 
     // Shift+Enter: intercept at the DOM level in the capture phase so
     // the event is caught *before* xterm.js sees it.  We send \n to the
@@ -266,14 +295,30 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
       dataDisposable.dispose();
       resizeDisposable.dispose();
       observer.disconnect();
-      term.dispose();
+      term.dispose(); // also disposes loaded addons (incl. WebGL)
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
+      webglAddonRef.current = null;
       observerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode]);
+
+  // Active-state transitions. Output is always parsed into the buffer via
+  // write() regardless of visibility (so scrollback stays correct) — here we
+  // only touch *rendering* concerns:
+  //   * blink the cursor only on the visible terminal (M4);
+  //   * force a repaint when a terminal becomes visible again, since its
+  //     renderer canvas may have been idle/unsized while display:none (M1).
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.cursorBlink = isActive;
+    if (isActive) {
+      term.refresh(0, term.rows - 1);
+    }
+  }, [isActive]);
 
   // -----------------------------------------------------------------------
   // Public API

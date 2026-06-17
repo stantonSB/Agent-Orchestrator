@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+import { subscribeNow, getNow } from "../../lib/sharedTicker";
 import styles from "./DurationTimer.module.css";
 
 interface DurationTimerProps {
   createdAt: number;
   active: boolean;
 }
+
+// Inactive timers never tick — subscribe to nothing.
+const noopSubscribe = () => () => {};
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -17,13 +21,12 @@ function formatDuration(ms: number): string {
 }
 
 export function DurationTimer({ createdAt, active }: DurationTimerProps) {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    if (!active) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [active]);
+  // All active timers share one 1 Hz ticker instead of each owning an interval.
+  const now = useSyncExternalStore(
+    active ? subscribeNow : noopSubscribe,
+    getNow,
+    getNow,
+  );
 
   const elapsed = (active ? now : Date.now()) - createdAt;
 
