@@ -225,6 +225,7 @@ impl OutputCoalescer {
         }
     }
 
+    #[cfg(test)]
     fn has_pending(&self) -> bool {
         !self.buf.is_empty()
     }

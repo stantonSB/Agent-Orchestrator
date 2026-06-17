@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.12.0] - 2026-06-17
+
+### Changed
+- **Faster, smoother output with many concurrent sessions** — Reworked the terminal-output pipeline so the UI stays responsive when several sessions stream output at once: PTY output is sent as compact base64 instead of a JSON integer array, the reader coalesces output into fewer, larger chunks, and xterm.js renders via GPU-accelerated WebGL with automatic fallback to the DOM renderer (#125)
+- **Fewer wasted re-renders** — A session status change now re-renders only that session's card instead of the whole session tree, hidden terminals skip needless cursor-blink/render work, and all duration timers share a single ticker (#125)
+
 ## [1.11.0] - 2026-06-11
 
 ### Fixed
