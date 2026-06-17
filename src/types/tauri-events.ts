@@ -13,10 +13,14 @@ export interface SessionInfo {
   created_at: number;
 }
 
-/** Payload emitted by the Rust PTY manager when a session produces output. */
-export interface SessionOutputPayload {
-  data: number[];
-}
+/**
+ * Payload emitted by the Rust PTY manager when a session produces output.
+ *
+ * A base64-encoded string of the raw PTY bytes — one compact string rather
+ * than a JSON array of integers. Decode with `decodeBase64` before writing to
+ * the terminal.
+ */
+export type SessionOutputPayload = string;
 
 /** Payload emitted when a session's child process exits. */
 export interface SessionExitPayload {

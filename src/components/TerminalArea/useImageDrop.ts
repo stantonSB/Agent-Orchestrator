@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { writeToSession, saveDroppedImage } from "../../lib/tauri-ipc";
+import { encodeBase64 } from "../../lib/base64";
 
 const IMAGE_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff",
@@ -43,8 +44,8 @@ export function useImageDrop({
       if (!activeSessionId || isActiveSessionReadOnly || mockMode) return;
       const encoder = new TextEncoder();
       // Trailing space so the cursor lands after the path
-      const bytes = Array.from(encoder.encode(path + " "));
-      writeToSession({ id: activeSessionId, data: bytes }).catch((err) => {
+      const bytes = encoder.encode(path + " ");
+      writeToSession({ id: activeSessionId, data: encodeBase64(bytes) }).catch((err) => {
         console.error("Failed to write dropped image path:", err);
       });
     },

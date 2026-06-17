@@ -98,13 +98,26 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<(), Strin
     }
 }
 
+/// Decode a base64 keystroke payload into raw bytes.
+///
+/// Keystrokes travel over the same base64 transport the PTY-output path uses
+/// (see `lib.rs`), keeping a single byte-encoding scheme across both
+/// directions instead of the old `number[]` array form.
+fn decode_input_bytes(data: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| format!("Invalid base64 input payload: {e}"))
+}
+
 #[tauri::command]
 pub fn write_to_session(
     state: State<'_, AppState>,
     id: String,
-    data: Vec<u8>,
+    data: String,
 ) -> Result<(), String> {
-    match state.pty.write(id, data) {
+    let bytes = decode_input_bytes(&data)?;
+    match state.pty.write(id, bytes) {
         PtyResponse::WriteOk => Ok(()),
         PtyResponse::Error(msg) => Err(msg),
         other => Err(format!("Unexpected response: {:?}", other)),
@@ -405,6 +418,32 @@ pub fn remove_worktree(worktree_path: String, force: bool) -> Result<WorktreeRem
 #[tauri::command]
 pub fn quit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine as _;
+
+    #[test]
+    fn decode_input_bytes_round_trips_arbitrary_bytes() {
+        // Includes control bytes and high bytes — keystrokes are not just ASCII
+        // (e.g. ESC sequences, UTF-8 multibyte input).
+        let original: Vec<u8> = vec![0x00, 0x1b, b'[', b'A', 0x7f, 0xc3, 0xa9, b'\r'];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&original);
+        let decoded = decode_input_bytes(&encoded).expect("valid base64 decodes");
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn decode_input_bytes_handles_empty() {
+        assert_eq!(decode_input_bytes("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn decode_input_bytes_rejects_invalid_base64() {
+        assert!(decode_input_bytes("not valid base64!!!").is_err());
+    }
 }
 
 #[tauri::command]

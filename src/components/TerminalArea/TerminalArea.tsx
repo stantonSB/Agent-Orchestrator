@@ -12,6 +12,7 @@ import {
 } from "../../lib/tauri-ipc";
 import type { SessionExitPayload } from "../../types/tauri-events";
 import { useSessionStore } from "../../stores/sessionStore";
+import { decodeBase64, encodeBase64 } from "../../lib/base64";
 import styles from "./TerminalArea.module.css";
 import { DropOverlay } from "./DropOverlay";
 import { useImageDrop } from "./useImageDrop";
@@ -59,8 +60,22 @@ export function TerminalArea({
   const onSessionExitRef = useRef(onSessionExitProp);
   onSessionExitRef.current = onSessionExitProp;
 
-  const setRef = useCallback(
-    (id: string) => (handle: XTermInstanceHandle | null) => {
+  // Per-session callback caches. Each `getX(id)` returns the SAME function
+  // instance across renders, so the props handed to a (memoized) XTermInstance
+  // stay referentially stable and React doesn't detach/reattach every terminal
+  // (and re-run the ref flush) on each unrelated re-render.
+  const refCallbacks = useRef(
+    new Map<string, (handle: XTermInstanceHandle | null) => void>(),
+  );
+  const dataHandlers = useRef(new Map<string, (data: string) => void>());
+  const resizeHandlers = useRef(
+    new Map<string, (cols: number, rows: number) => void>(),
+  );
+
+  const getRefCallback = useCallback((id: string) => {
+    const existing = refCallbacks.current.get(id);
+    if (existing) return existing;
+    const cb = (handle: XTermInstanceHandle | null) => {
       if (handle) {
         refsMap.current.set(id, handle);
         // Flush any output that arrived before the terminal mounted
@@ -72,9 +87,10 @@ export function TerminalArea({
       } else {
         refsMap.current.delete(id);
       }
-    },
-    [],
-  );
+    };
+    refCallbacks.current.set(id, cb);
+    return cb;
+  }, []);
 
   // Incrementally manage per-session output and exit listeners.
   // Listeners persist in refs so adding session B never tears down session A's listener.
@@ -91,17 +107,18 @@ export function TerminalArea({
       if (session.persisted) continue;
 
       const promise = onSessionOutput(sid, (payload) => {
-        if (!payload.data) return;
+        if (!payload) return;
+        const bytes = decodeBase64(payload);
         const handle = refsMap.current.get(sid);
         if (handle) {
-          handle.write(new Uint8Array(payload.data));
+          handle.write(bytes);
         } else {
           let buf = outputBuffers.current.get(sid);
           if (!buf) {
             buf = [];
             outputBuffers.current.set(sid, buf);
           }
-          buf.push(new Uint8Array(payload.data));
+          buf.push(bytes);
         }
       }).catch((err) => {
         console.error(`Failed to register output listener for ${sid}:`, err);
@@ -142,6 +159,16 @@ export function TerminalArea({
     for (const sid of staleExit) {
       exitListeners.current.get(sid)!.then((unlisten) => unlisten());
       exitListeners.current.delete(sid);
+    }
+
+    // Drop cached per-session callbacks for sessions that no longer exist so
+    // the caches don't grow unbounded over a long-lived window.
+    for (const sid of [...refCallbacks.current.keys()]) {
+      if (!currentIds.has(sid)) {
+        refCallbacks.current.delete(sid);
+        dataHandlers.current.delete(sid);
+        resizeHandlers.current.delete(sid);
+      }
     }
   }, [sessions, mockMode]);
 
@@ -201,13 +228,13 @@ export function TerminalArea({
     doLoad();
   }, [activeSessionId, sessions, loadScrollback]);
 
-  // Forward user keystrokes to PTY via IPC.
+  // Forward user keystrokes to PTY via IPC. Keystrokes are base64-encoded —
+  // the same byte transport the PTY-output path uses.
   const handleSessionData = useCallback(
     (sessionId: string, data: string) => {
       if (mockMode) return;
-      const encoder = new TextEncoder();
-      const bytes = Array.from(encoder.encode(data));
-      writeToSession({ id: sessionId, data: bytes }).catch((err) => {
+      const bytes = new TextEncoder().encode(data);
+      writeToSession({ id: sessionId, data: encodeBase64(bytes) }).catch((err) => {
         console.error(`Failed to write to session ${sessionId}:`, err);
       });
     },
@@ -231,6 +258,31 @@ export function TerminalArea({
     },
     [mockMode],
   );
+
+  // Route the cached per-session handlers through refs so the cached function
+  // identities (created once per id) never go stale even if the underlying
+  // callbacks change.
+  const handleSessionDataRef = useRef(handleSessionData);
+  handleSessionDataRef.current = handleSessionData;
+  const handleSessionResizeRef = useRef(handleSessionResize);
+  handleSessionResizeRef.current = handleSessionResize;
+
+  const getDataHandler = useCallback((id: string) => {
+    const existing = dataHandlers.current.get(id);
+    if (existing) return existing;
+    const handler = (data: string) => handleSessionDataRef.current(id, data);
+    dataHandlers.current.set(id, handler);
+    return handler;
+  }, []);
+
+  const getResizeHandler = useCallback((id: string) => {
+    const existing = resizeHandlers.current.get(id);
+    if (existing) return existing;
+    const handler = (cols: number, rows: number) =>
+      handleSessionResizeRef.current(id, cols, rows);
+    resizeHandlers.current.set(id, handler);
+    return handler;
+  }, []);
 
   const openSearch = useCallback(() => {
     if (activeSessionId && sessions.length > 0) {
@@ -312,16 +364,14 @@ export function TerminalArea({
         {sessions.map((session) => (
           <XTermInstance
             key={session.id}
-            ref={setRef(session.id)}
+            ref={getRefCallback(session.id)}
             sessionId={session.id}
             cwd={session.cwd}
             isActive={session.id === activeSessionId}
             mockMode={mockMode}
             readOnly={session.persisted}
-            onData={(data) => handleSessionData(session.id, data)}
-            onResize={(cols, rows) =>
-              handleSessionResize(session.id, cols, rows)
-            }
+            onData={getDataHandler(session.id)}
+            onResize={getResizeHandler(session.id)}
           />
         ))}
       </div>

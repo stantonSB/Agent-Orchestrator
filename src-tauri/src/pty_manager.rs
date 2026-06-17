@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Capture the user's full login-shell environment.
 ///
@@ -158,6 +158,77 @@ pub type ExitCallback = Box<dyn Fn(SessionId, Option<u32>) + Send + Sync + 'stat
 pub type StatusCallback = Box<dyn Fn(SessionId, String) + Send + Sync + 'static>;
 pub type SubagentCallback = Box<dyn Fn(SessionId, Vec<crate::subagent_tracker::SubagentStatusPayload>) + Send + Sync + 'static>;
 pub type WorktreeCwdCallback = Box<dyn Fn(SessionId, String) + Send + Sync + 'static>;
+
+// ---------------------------------------------------------------------------
+// Output coalescing
+// ---------------------------------------------------------------------------
+
+/// Flush accumulated PTY output once it reaches this many bytes.
+const COALESCE_SIZE_CAP: usize = 64 * 1024;
+/// Flush accumulated PTY output at most this long after its first byte.
+const COALESCE_WINDOW: Duration = Duration::from_millis(8);
+
+/// Accumulates PTY output so the reader emits fewer, larger chunks instead of
+/// one IPC event per `read()` (which are <=4 KB). Output is flushed when either
+/// the size cap is reached or the time window elapses since the batch's first
+/// byte — whichever comes first.
+///
+/// This is a pure buffering helper: it holds no PTY state, so it stays
+/// trivially unit-testable and does not violate the "PTY state lives only on
+/// the manager thread" invariant.
+struct OutputCoalescer {
+    buf: Vec<u8>,
+    deadline: Option<Instant>,
+    size_cap: usize,
+    window: Duration,
+}
+
+impl OutputCoalescer {
+    fn new(size_cap: usize, window: Duration) -> Self {
+        Self {
+            buf: Vec::with_capacity(size_cap),
+            deadline: None,
+            size_cap,
+            window,
+        }
+    }
+
+    /// Append `data`. Returns `Some(bytes)` to emit immediately when the size
+    /// cap is reached; otherwise `None` (a time-based flush will follow). `now`
+    /// is injected so the deadline is deterministic in tests.
+    fn push(&mut self, data: &[u8], now: Instant) -> Option<Vec<u8>> {
+        if self.buf.is_empty() {
+            self.deadline = Some(now + self.window);
+        }
+        self.buf.extend_from_slice(data);
+        if self.buf.len() >= self.size_cap {
+            self.deadline = None;
+            Some(std::mem::take(&mut self.buf))
+        } else {
+            None
+        }
+    }
+
+    /// Instant at which pending bytes must be flushed, if any are buffered.
+    fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    /// Drain whatever is buffered (used on the time-based flush and at stream
+    /// end). Returns `None` if nothing is pending.
+    fn take(&mut self) -> Option<Vec<u8>> {
+        self.deadline = None;
+        if self.buf.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.buf))
+        }
+    }
+
+    fn has_pending(&self) -> bool {
+        !self.buf.is_empty()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Internal session state (lives exclusively on the manager thread)
@@ -490,25 +561,81 @@ fn manager_loop(
                     let reader_handle = thread::Builder::new()
                         .name(format!("pty-reader-{}", &id[..8]))
                         .spawn(move || {
-                            let mut buf = [0u8; 4096];
-                            loop {
-                                match reader.read(&mut buf) {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        let data = buf[..n].to_vec();
-                                        cb(reader_id.clone(), data);
+                            // Two cooperating threads:
+                            //   * an inner I/O thread does the blocking PTY
+                            //     reads and forwards each chunk over a channel;
+                            //   * this thread coalesces those chunks and emits
+                            //     fewer, larger payloads via `cb`.
+                            // Splitting them lets the coalescer flush pending
+                            // bytes on a short timer even while the I/O thread
+                            // is parked in a blocking `read()`, so output never
+                            // stalls when the child goes idle mid-batch.
+                            let (chunk_tx, chunk_rx) = mpsc::channel::<Vec<u8>>();
+
+                            let io_reader_id = reader_id.clone();
+                            let io_handle = thread::Builder::new()
+                                .name(format!("pty-io-{}", &io_reader_id[..8]))
+                                .spawn(move || {
+                                    let mut buf = [0u8; 4096];
+                                    loop {
+                                        match reader.read(&mut buf) {
+                                            Ok(0) => break,
+                                            Ok(n) => {
+                                                if chunk_tx.send(buf[..n].to_vec()).is_err() {
+                                                    break; // coalescer gone
+                                                }
+                                            }
+                                            Err(e) => {
+                                                if e.kind() != std::io::ErrorKind::Other {
+                                                    eprintln!(
+                                                        "PTY read error for {}: {e}",
+                                                        &io_reader_id[..8]
+                                                    );
+                                                }
+                                                break;
+                                            }
+                                        }
                                     }
-                                    Err(e) => {
-                                        if e.kind() != std::io::ErrorKind::Other {
-                                            eprintln!(
-                                                "PTY read error for {}: {e}",
-                                                &reader_id[..8]
-                                            );
+                                    // chunk_tx is dropped here → the coalescer
+                                    // loop below observes Disconnected.
+                                })
+                                .expect("failed to spawn PTY io thread");
+
+                            let mut coalescer =
+                                OutputCoalescer::new(COALESCE_SIZE_CAP, COALESCE_WINDOW);
+                            loop {
+                                let timeout = match coalescer.deadline() {
+                                    Some(d) => d.saturating_duration_since(Instant::now()),
+                                    // Nothing pending — block until the next chunk.
+                                    None => Duration::from_secs(3600),
+                                };
+                                match chunk_rx.recv_timeout(timeout) {
+                                    Ok(chunk) => {
+                                        if let Some(flush) =
+                                            coalescer.push(&chunk, Instant::now())
+                                        {
+                                            cb(reader_id.clone(), flush);
+                                        }
+                                    }
+                                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                                        if let Some(flush) = coalescer.take() {
+                                            cb(reader_id.clone(), flush);
+                                        }
+                                    }
+                                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                        if let Some(flush) = coalescer.take() {
+                                            cb(reader_id.clone(), flush);
                                         }
                                         break;
                                     }
                                 }
                             }
+
+                            // Ensure all output has been emitted before the
+                            // exit callback fires, so the terminal shows the
+                            // child's final bytes before its "finished" status.
+                            let _ = io_handle.join();
+
                             let exit_code = child_for_wait
                                 .wait()
                                 .ok()
@@ -1207,5 +1334,52 @@ mod tests {
             other => panic!("Expected Sessions, got: {:?}", other),
         }
         handle.shutdown();
+    }
+
+    // ---- OutputCoalescer ----
+
+    #[test]
+    fn coalescer_buffers_below_cap_then_drains() {
+        let mut c = OutputCoalescer::new(64 * 1024, Duration::from_millis(8));
+        let now = Instant::now();
+        assert!(c.push(b"hello ", now).is_none());
+        assert!(c.push(b"world", now).is_none());
+        assert!(c.has_pending());
+        assert_eq!(c.take(), Some(b"hello world".to_vec()));
+        assert!(!c.has_pending());
+        // Nothing left to drain.
+        assert_eq!(c.take(), None);
+    }
+
+    #[test]
+    fn coalescer_flushes_on_size_cap() {
+        let mut c = OutputCoalescer::new(8, Duration::from_millis(8));
+        let now = Instant::now();
+        assert!(c.push(b"abc", now).is_none());
+        // Crossing the cap returns the whole accumulated batch.
+        assert_eq!(c.push(b"defghij", now), Some(b"abcdefghij".to_vec()));
+        assert!(!c.has_pending());
+        // Deadline is cleared after a size-cap flush.
+        assert_eq!(c.deadline(), None);
+    }
+
+    #[test]
+    fn coalescer_deadline_tracks_first_byte_of_batch() {
+        let mut c = OutputCoalescer::new(64 * 1024, Duration::from_millis(8));
+        assert_eq!(c.deadline(), None);
+        let start = Instant::now();
+        c.push(b"x", start);
+        let deadline = c.deadline().expect("deadline set on first byte");
+        assert_eq!(deadline, start + Duration::from_millis(8));
+        // A later push in the same batch must not move the deadline back.
+        c.push(b"y", start + Duration::from_millis(5));
+        assert_eq!(c.deadline(), Some(deadline));
+        // After draining, the next batch starts a fresh deadline.
+        let drained = c.take().unwrap();
+        assert_eq!(drained, b"xy".to_vec());
+        assert_eq!(c.deadline(), None);
+        let later = start + Duration::from_millis(20);
+        c.push(b"z", later);
+        assert_eq!(c.deadline(), Some(later + Duration::from_millis(8)));
     }
 }
