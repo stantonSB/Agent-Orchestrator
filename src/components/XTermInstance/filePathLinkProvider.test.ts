@@ -301,4 +301,71 @@ describe("FilePathLinkProvider", () => {
       });
     });
   });
+
+  describe("worktree-aware resolution", () => {
+    it("resolves relative paths against the worktree cwd when one is set", async () => {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      vi.mocked(openUrl).mockClear();
+      const terminal = createMockTerminal("Created src/newfile.ts");
+      const cwdRef = { current: "/Users/test/project" };
+      const worktreeCwdRef = {
+        current: "/Users/test/project/.claude/worktrees/breezy-frog" as
+          | string
+          | null,
+      };
+      const provider = new FilePathLinkProvider(terminal, cwdRef, worktreeCwdRef);
+
+      await new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links) => {
+          links![0].activate({ metaKey: true } as MouseEvent, links![0].text);
+          expect(openUrl).toHaveBeenCalledWith(
+            "vscode://file/Users/test/project/.claude/worktrees/breezy-frog/src/newfile.ts",
+          );
+          resolve();
+        });
+      });
+    });
+
+    it("falls back to the base cwd when the worktree cwd is null", async () => {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      vi.mocked(openUrl).mockClear();
+      const terminal = createMockTerminal("Created src/newfile.ts");
+      const cwdRef = { current: "/Users/test/project" };
+      const worktreeCwdRef = { current: null as string | null };
+      const provider = new FilePathLinkProvider(terminal, cwdRef, worktreeCwdRef);
+
+      await new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links) => {
+          links![0].activate({ metaKey: true } as MouseEvent, links![0].text);
+          expect(openUrl).toHaveBeenCalledWith(
+            "vscode://file/Users/test/project/src/newfile.ts",
+          );
+          resolve();
+        });
+      });
+    });
+
+    it("leaves absolute paths untouched even when a worktree cwd is set", async () => {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      vi.mocked(openUrl).mockClear();
+      const terminal = createMockTerminal("File at /Users/test/project/src/a.ts");
+      const cwdRef = { current: "/Users/test/project" };
+      const worktreeCwdRef = {
+        current: "/Users/test/project/.claude/worktrees/breezy-frog" as
+          | string
+          | null,
+      };
+      const provider = new FilePathLinkProvider(terminal, cwdRef, worktreeCwdRef);
+
+      await new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links) => {
+          links![0].activate({ metaKey: true } as MouseEvent, links![0].text);
+          expect(openUrl).toHaveBeenCalledWith(
+            "vscode://file/Users/test/project/src/a.ts",
+          );
+          resolve();
+        });
+      });
+    });
+  });
 });

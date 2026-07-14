@@ -17,6 +17,12 @@ export class FilePathLinkProvider implements ILinkProvider {
   constructor(
     private readonly terminal: Terminal,
     private readonly cwdRef: { current: string | undefined },
+    // When the session's agent is working inside a git worktree, relative
+    // paths in its output are relative to that worktree, not the base repo.
+    // Resolve against the worktree cwd when one is set so Cmd+click opens the
+    // file where it actually exists instead of the (often missing) copy on the
+    // base checkout.
+    private readonly worktreeCwdRef?: { current: string | null | undefined },
   ) {}
 
   provideLinks(
@@ -69,7 +75,9 @@ export class FilePathLinkProvider implements ILinkProvider {
     if (filePath.startsWith("/")) {
       absolutePath = filePath;
     } else {
-      const cwd = this.cwdRef.current;
+      // Prefer the worktree cwd when the session is running inside one; fall
+      // back to the base session cwd otherwise.
+      const cwd = this.worktreeCwdRef?.current || this.cwdRef.current;
       if (cwd) {
         absolutePath = `${cwd.replace(/\/$/, "")}/${filePath}`;
       } else {
