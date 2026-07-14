@@ -36,12 +36,14 @@ If either is missing (e.g., running Claude Code outside of Agent Orchestrator), 
 
 ### 2. Hook Configuration
 
-**`~/.claude/settings.json`** — two hook entries are added:
+Hooks are **not** written to `~/.claude/settings.json`. When Agent Orchestrator spawns a Claude session it passes `--settings` with an inline JSON payload registering five hook entries, so the hooks exist only inside AO-launched sessions:
 
-- **Notification hook** — fires on `idle_prompt`, `permission_prompt`, and `elicitation_dialog` events
-- **Stop hook** — fires immediately when Claude Code finishes a task
+- **Notification** — fires on `idle_prompt`, `permission_prompt`, and `elicitation_dialog` events
+- **Stop** — fires immediately when Claude Code finishes a task
+- **SubagentStart / SubagentStop** — track subagent lifecycles for the per-session subagent display
+- **PreToolUse** — fires before every tool call; consumed only for early worktree CWD discovery via the script's `X-Cwd` header
 
-Both pipe their JSON payload to the notify script via stdin.
+All pipe their JSON payload to the notify script via stdin. Older versions merged these hooks into the global `~/.claude/settings.json`, where they also fired in sessions not launched by Agent Orchestrator; on startup the app now removes any such leftover entries.
 
 ### 3. Idle Threshold
 
