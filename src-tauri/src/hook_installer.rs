@@ -23,8 +23,46 @@ fi
 
 const IDLE_THRESHOLD_MS: u64 = 500;
 
-/// Check if hooks are installed. If not, install them.
-/// Returns the result of the operation.
+/// Hook events forwarded to the status server. Notification drives
+/// Working/Idle/NeedsAttention transitions, Stop fires immediately on task
+/// completion, SubagentStart/SubagentStop track subagent lifecycles, and
+/// PreToolUse exists solely for early worktree CWD discovery via the
+/// script's X-Cwd header.
+const HOOK_EVENTS: [&str; 5] = [
+    "Notification",
+    "Stop",
+    "SubagentStop",
+    "SubagentStart",
+    "PreToolUse",
+];
+
+const HOOK_SCRIPT_NEEDLE: &str = "agent-orchestrator-notify";
+
+/// Settings JSON passed to AO-spawned Claude sessions via `--settings`.
+/// Injecting the hooks per-session keeps them out of the user's global
+/// ~/.claude/settings.json, where they would fire in every Claude Code
+/// session on the machine — AO-launched or not.
+pub fn session_hook_settings() -> String {
+    let entry = serde_json::json!({
+        "matcher": "",
+        "hooks": [
+            {
+                "type": "command",
+                "command": "${HOME}/.claude/agent-orchestrator-notify.sh"
+            }
+        ]
+    });
+    let mut hooks = serde_json::Map::new();
+    for event in HOOK_EVENTS {
+        hooks.insert(event.to_string(), serde_json::Value::Array(vec![entry.clone()]));
+    }
+    serde_json::json!({ "hooks": hooks }).to_string()
+}
+
+/// Ensure the notify script and idle threshold are in place, and remove
+/// hooks that older versions merged into the global settings.json (hooks
+/// are injected per-session via `--settings` now — see
+/// `session_hook_settings`). Returns the result of the operation.
 pub fn ensure_hooks_installed() -> HookInstallResult {
     let home = match std::env::var("HOME") {
         Ok(h) => PathBuf::from(h),
@@ -54,8 +92,9 @@ pub fn ensure_hooks_installed_in(home: &Path) -> HookInstallResult {
         return HookInstallResult::Failed(format!("Failed to write hook script: {e}"));
     }
 
-    // Step 3: Merge hook config into settings.json
-    if let Err(e) = merge_hook_settings(&settings_path) {
+    // Step 3: Remove hooks that older versions merged into the global
+    // settings.json — they are injected per-session via --settings now.
+    if let Err(e) = remove_hook_settings(&settings_path) {
         return HookInstallResult::Failed(format!("Failed to update settings.json: {e}"));
     }
 
@@ -92,20 +131,10 @@ fn is_already_installed(script_path: &Path, settings_path: &Path, profile_path: 
         return false;
     }
 
-    // Check settings.json contains our Notification and Stop hooks
-    if !settings_has_our_hook(settings_path) {
-        return false;
-    }
-    if !settings_has_our_stop_hook(settings_path) {
-        return false;
-    }
-    if !settings_has_our_subagent_stop_hook(settings_path) {
-        return false;
-    }
-    if !settings_has_our_subagent_start_hook(settings_path) {
-        return false;
-    }
-    if !settings_has_our_pre_tool_use_hook(settings_path) {
+    // Check settings.json is free of the hooks older versions installed
+    // globally — if any remain, the migration in remove_hook_settings
+    // still needs to run.
+    if settings_has_any_of_our_hooks(settings_path) {
         return false;
     }
 
@@ -117,7 +146,7 @@ fn is_already_installed(script_path: &Path, settings_path: &Path, profile_path: 
     true
 }
 
-fn settings_has_our_hook(settings_path: &Path) -> bool {
+fn settings_has_any_of_our_hooks(settings_path: &Path) -> bool {
     let content = match fs::read_to_string(settings_path) {
         Ok(c) => c,
         Err(_) => return false,
@@ -126,55 +155,9 @@ fn settings_has_our_hook(settings_path: &Path) -> bool {
         Ok(v) => v,
         Err(_) => return false,
     };
-    notification_array_has_our_hook(&val)
-}
-
-fn settings_has_our_stop_hook(settings_path: &Path) -> bool {
-    let content = match fs::read_to_string(settings_path) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let val: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    hook_array_has_our_script(&val, "Stop")
-}
-
-fn settings_has_our_subagent_stop_hook(settings_path: &Path) -> bool {
-    let content = match fs::read_to_string(settings_path) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let val: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    hook_array_has_our_script(&val, "SubagentStop")
-}
-
-fn settings_has_our_subagent_start_hook(settings_path: &Path) -> bool {
-    let content = match fs::read_to_string(settings_path) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let val: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    hook_array_has_our_script(&val, "SubagentStart")
-}
-
-fn settings_has_our_pre_tool_use_hook(settings_path: &Path) -> bool {
-    let content = match fs::read_to_string(settings_path) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let val: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    hook_array_has_our_script(&val, "PreToolUse")
+    HOOK_EVENTS
+        .iter()
+        .any(|event| hook_array_has_our_script(&val, event))
 }
 
 fn hook_array_has_our_script(val: &serde_json::Value, hook_type: &str) -> bool {
@@ -183,18 +166,13 @@ fn hook_array_has_our_script(val: &serde_json::Value, hook_type: &str) -> bool {
         Some(serde_json::Value::Array(arr)) => arr,
         _ => return false,
     };
-    let needle = "agent-orchestrator-notify";
     for entry in entries {
         let entry_str = entry.to_string();
-        if entry_str.contains(needle) {
+        if entry_str.contains(HOOK_SCRIPT_NEEDLE) {
             return true;
         }
     }
     false
-}
-
-fn notification_array_has_our_hook(val: &serde_json::Value) -> bool {
-    hook_array_has_our_script(val, "Notification")
 }
 
 fn profile_has_idle_threshold(profile_path: &Path) -> bool {
@@ -217,119 +195,53 @@ fn write_hook_script(script_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn merge_hook_settings(settings_path: &Path) -> Result<(), String> {
-    let mut val: serde_json::Value = if settings_path.exists() {
-        let content = fs::read_to_string(settings_path)
-            .map_err(|e| format!("read error: {e}"))?;
-        match serde_json::from_str(&content) {
-            Ok(v) => v,
-            Err(_) => {
-                // Back up malformed file and start fresh
-                let bak = settings_path.with_extension("json.bak");
-                fs::copy(settings_path, &bak)
-                    .map_err(|e| format!("backup error: {e}"))?;
-                serde_json::Value::Object(serde_json::Map::new())
-            }
-        }
-    } else {
-        serde_json::Value::Object(serde_json::Map::new())
-    };
-
-    // Check what's missing before taking mutable borrows
-    let need_notification = !notification_array_has_our_hook(&val);
-    let need_stop = !hook_array_has_our_script(&val, "Stop");
-    let need_subagent_stop = !hook_array_has_our_script(&val, "SubagentStop");
-    let need_subagent_start = !hook_array_has_our_script(&val, "SubagentStart");
-    let need_pre_tool_use = !hook_array_has_our_script(&val, "PreToolUse");
-
-    if !need_notification && !need_stop && !need_subagent_stop && !need_subagent_start && !need_pre_tool_use {
+/// Remove hook entries that older versions merged into the user's global
+/// settings.json. Only entries referencing our notify script are touched;
+/// everything else in the file is preserved verbatim.
+fn remove_hook_settings(settings_path: &Path) -> Result<(), String> {
+    if !settings_path.exists() {
         return Ok(());
     }
+    let content = fs::read_to_string(settings_path)
+        .map_err(|e| format!("read error: {e}"))?;
+    let mut val: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        // A malformed settings.json has nothing of ours to remove; leave
+        // it for the user rather than clobbering it.
+        Err(_) => return Ok(()),
+    };
 
-    let our_hook_entry = serde_json::json!({
-        "matcher": "",
-        "hooks": [
-            {
-                "type": "command",
-                "command": "${HOME}/.claude/agent-orchestrator-notify.sh"
+    let mut changed = false;
+    let mut hooks_now_empty = false;
+    if let Some(hooks_obj) = val.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+        for event in HOOK_EVENTS {
+            let emptied = match hooks_obj.get_mut(event).and_then(|e| e.as_array_mut()) {
+                Some(entries) => {
+                    let before = entries.len();
+                    entries.retain(|entry| !entry.to_string().contains(HOOK_SCRIPT_NEEDLE));
+                    changed |= entries.len() != before;
+                    before > 0 && entries.is_empty()
+                }
+                None => false,
+            };
+            if emptied {
+                hooks_obj.remove(event);
             }
-        ]
-    });
-
-    // Ensure hooks object exists
-    let hooks = val
-        .as_object_mut()
-        .ok_or("settings.json root is not an object")?
-        .entry("hooks")
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-
-    let hooks_obj = hooks
-        .as_object_mut()
-        .ok_or("hooks is not an object")?;
-
-    // Add Notification hook if missing
-    if need_notification {
-        let notifications = hooks_obj
-            .entry("Notification")
-            .or_insert_with(|| serde_json::Value::Array(vec![]));
-        notifications
-            .as_array_mut()
-            .ok_or("Notification is not an array")?
-            .push(our_hook_entry.clone());
+        }
+        hooks_now_empty = changed && hooks_obj.is_empty();
+    }
+    if hooks_now_empty {
+        if let Some(root) = val.as_object_mut() {
+            root.remove("hooks");
+        }
     }
 
-    // Add Stop hook if missing — fires immediately when Claude finishes,
-    // unlike idle_prompt which has a hardcoded 60-second delay.
-    if need_stop {
-        let stop_hooks = hooks_obj
-            .entry("Stop")
-            .or_insert_with(|| serde_json::Value::Array(vec![]));
-        stop_hooks
-            .as_array_mut()
-            .ok_or("Stop is not an array")?
-            .push(our_hook_entry.clone());
+    if changed {
+        let serialized = serde_json::to_string_pretty(&val)
+            .map_err(|e| format!("serialization error: {e}"))?;
+        fs::write(settings_path, serialized)
+            .map_err(|e| format!("write error: {e}"))?;
     }
-
-    // Add SubagentStop hook if missing — fires when a subagent finishes,
-    // enabling status tracking for nested subagent sessions.
-    if need_subagent_stop {
-        let subagent_stop_hooks = hooks_obj
-            .entry("SubagentStop")
-            .or_insert_with(|| serde_json::Value::Array(vec![]));
-        subagent_stop_hooks
-            .as_array_mut()
-            .ok_or("SubagentStop is not an array")?
-            .push(our_hook_entry.clone());
-    }
-
-    // Add SubagentStart hook if missing — fires when a subagent spawns,
-    // enabling real-time tracking of subagent lifecycle from the start.
-    if need_subagent_start {
-        let subagent_start_hooks = hooks_obj
-            .entry("SubagentStart")
-            .or_insert_with(|| serde_json::Value::Array(vec![]));
-        subagent_start_hooks
-            .as_array_mut()
-            .ok_or("SubagentStart is not an array")?
-            .push(our_hook_entry.clone());
-    }
-
-    // Add PreToolUse hook if missing — fires on the very first tool use,
-    // enabling early worktree CWD discovery before Notification/Stop hooks.
-    if need_pre_tool_use {
-        let pre_tool_use_hooks = hooks_obj
-            .entry("PreToolUse")
-            .or_insert_with(|| serde_json::Value::Array(vec![]));
-        pre_tool_use_hooks
-            .as_array_mut()
-            .ok_or("PreToolUse is not an array")?
-            .push(our_hook_entry.clone());
-    }
-
-    let serialized = serde_json::to_string_pretty(&val)
-        .map_err(|e| format!("serialization error: {e}"))?;
-    fs::write(settings_path, serialized)
-        .map_err(|e| format!("write error: {e}"))?;
 
     Ok(())
 }
@@ -392,6 +304,22 @@ mod tests {
         home.path().join(".claude.json")
     }
 
+    /// Builds the settings.json shape older versions wrote: all five hook
+    /// events pointing at the notify script.
+    fn legacy_hooks_json() -> serde_json::Value {
+        let entry = serde_json::json!({
+            "matcher": "",
+            "hooks": [
+                { "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }
+            ]
+        });
+        let mut hooks = serde_json::Map::new();
+        for event in HOOK_EVENTS {
+            hooks.insert(event.to_string(), serde_json::Value::Array(vec![entry.clone()]));
+        }
+        serde_json::Value::Object(hooks)
+    }
+
     #[test]
     fn test_fresh_install() {
         let home = temp_home();
@@ -404,9 +332,8 @@ mod tests {
         let mode = fs::metadata(&sp).unwrap().permissions().mode();
         assert!(mode & 0o100 != 0, "script should be executable");
 
-        // settings.json has both Notification and Stop hook entries
-        assert!(settings_has_our_hook(&settings_path(&home)));
-        assert!(settings_has_our_stop_hook(&settings_path(&home)));
+        // Global settings.json is NOT created — hooks are per-session now
+        assert!(!settings_path(&home).exists());
 
         // .claude.json has idle threshold
         assert!(profile_has_idle_threshold(&profile_path(&home)));
@@ -449,23 +376,61 @@ mod tests {
     }
 
     #[test]
-    fn test_merges_with_existing_settings() {
+    fn test_migration_removes_our_hooks_preserves_others() {
         let home = temp_home();
         fs::create_dir_all(claude_dir(&home)).unwrap();
 
-        // Pre-populate settings with an existing hook entry
-        let existing = serde_json::json!({
-            "hooks": {
-                "Notification": [
-                    {
-                        "hooks": [
-                            { "type": "command", "command": "/some/other/hook.sh" }
-                        ]
-                    }
-                ]
-            },
-            "otherSetting": true
-        });
+        // Legacy install shape plus a foreign hook and an unrelated setting
+        let mut hooks = legacy_hooks_json();
+        hooks.as_object_mut().unwrap()["Notification"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "hooks": [{ "type": "command", "command": "/some/other/hook.sh" }]
+            }));
+        let existing = serde_json::json!({ "hooks": hooks, "otherSetting": true });
+        fs::write(
+            settings_path(&home),
+            serde_json::to_string_pretty(&existing).unwrap(),
+        )
+        .unwrap();
+
+        let result = ensure_hooks_installed_in(home.path());
+        assert_eq!(result, HookInstallResult::Installed);
+
+        let content = fs::read_to_string(settings_path(&home)).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // None of our hooks remain in any event
+        for event in HOOK_EVENTS {
+            assert!(
+                !hook_array_has_our_script(&val, event),
+                "{event} should no longer reference the notify script"
+            );
+        }
+
+        // Foreign hook survives; events we emptied are dropped entirely
+        let notifications = val.pointer("/hooks/Notification").unwrap().as_array().unwrap();
+        assert_eq!(notifications.len(), 1);
+        assert!(val.pointer("/hooks/Stop").is_none());
+        assert!(val.pointer("/hooks/PreToolUse").is_none());
+
+        // Other settings preserved
+        assert_eq!(val["otherSetting"], serde_json::json!(true));
+
+        // Second run has nothing left to do
+        assert_eq!(
+            ensure_hooks_installed_in(home.path()),
+            HookInstallResult::AlreadyInstalled
+        );
+    }
+
+    #[test]
+    fn test_migration_drops_hooks_object_when_emptied() {
+        let home = temp_home();
+        fs::create_dir_all(claude_dir(&home)).unwrap();
+
+        let existing = serde_json::json!({ "hooks": legacy_hooks_json(), "model": "opus" });
         fs::write(
             settings_path(&home),
             serde_json::to_string_pretty(&existing).unwrap(),
@@ -476,21 +441,8 @@ mod tests {
 
         let content = fs::read_to_string(settings_path(&home)).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-        // Our Notification and Stop hooks are present
-        assert!(notification_array_has_our_hook(&val));
-        assert!(hook_array_has_our_script(&val, "Stop"));
-
-        // Existing hook is preserved
-        let notifications = val.pointer("/hooks/Notification").unwrap().as_array().unwrap();
-        assert_eq!(notifications.len(), 2);
-
-        // Stop hook added
-        let stop_hooks = val.pointer("/hooks/Stop").unwrap().as_array().unwrap();
-        assert_eq!(stop_hooks.len(), 1);
-
-        // Other settings preserved
-        assert_eq!(val["otherSetting"], serde_json::json!(true));
+        assert!(val.get("hooks").is_none(), "emptied hooks object should be removed");
+        assert_eq!(val["model"], serde_json::json!("opus"));
     }
 
     #[test]
@@ -501,12 +453,10 @@ mod tests {
         write_hook_script(&script_path(&home)).unwrap();
         set_idle_threshold(&profile_path(&home)).unwrap();
 
-        // settings.json does not exist — installation should succeed
+        // settings.json does not exist — nothing to migrate, nothing to write
         let result = ensure_hooks_installed_in(home.path());
-        assert_eq!(result, HookInstallResult::Installed);
-        assert!(settings_path(&home).exists());
-        assert!(settings_has_our_hook(&settings_path(&home)));
-        assert!(settings_has_our_stop_hook(&settings_path(&home)));
+        assert_eq!(result, HookInstallResult::AlreadyInstalled);
+        assert!(!settings_path(&home).exists());
     }
 
     #[test]
@@ -514,105 +464,37 @@ mod tests {
         let home = temp_home();
         fs::create_dir_all(claude_dir(&home)).unwrap();
         // Write malformed JSON
-        fs::write(settings_path(&home), b"{ this is not valid json !!!").unwrap();
+        let malformed = b"{ this is not valid json !!!";
+        fs::write(settings_path(&home), malformed).unwrap();
 
         let result = ensure_hooks_installed_in(home.path());
         assert_eq!(result, HookInstallResult::Installed);
 
-        // Backup created
+        // Malformed file is left untouched — we only remove, never rewrite
+        let content = fs::read(settings_path(&home)).unwrap();
+        assert_eq!(content, malformed);
         let bak = home.path().join(".claude").join("settings.json.bak");
-        assert!(bak.exists());
-
-        // New settings.json is valid and has both hooks
-        assert!(settings_has_our_hook(&settings_path(&home)));
-        assert!(settings_has_our_stop_hook(&settings_path(&home)));
+        assert!(!bak.exists());
     }
 
     #[test]
-    fn test_subagent_stop_hook_installed() {
-        let home = temp_home();
-        ensure_hooks_installed_in(home.path());
+    fn test_session_hook_settings_covers_all_events() {
+        let val: serde_json::Value =
+            serde_json::from_str(&session_hook_settings()).expect("valid JSON");
 
-        let content = fs::read_to_string(settings_path(&home)).unwrap();
-        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert!(hook_array_has_our_script(&val, "SubagentStop"));
-    }
+        let root = val.as_object().unwrap();
+        assert_eq!(root.len(), 1, "only the hooks key should be present");
 
-    #[test]
-    fn test_adds_subagent_stop_when_only_notification_and_stop_exist() {
-        let home = temp_home();
-        fs::create_dir_all(claude_dir(&home)).unwrap();
-
-        let existing = serde_json::json!({
-            "hooks": {
-                "Notification": [{
-                    "matcher": "",
-                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
-                }],
-                "Stop": [{
-                    "matcher": "",
-                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
-                }]
-            }
-        });
-        fs::write(settings_path(&home), serde_json::to_string_pretty(&existing).unwrap()).unwrap();
-        write_hook_script(&script_path(&home)).unwrap();
-        set_idle_threshold(&profile_path(&home)).unwrap();
-
-        let result = ensure_hooks_installed_in(home.path());
-        assert_eq!(result, HookInstallResult::Installed);
-        assert!(hook_array_has_our_script(
-            &serde_json::from_str::<serde_json::Value>(&fs::read_to_string(settings_path(&home)).unwrap()).unwrap(),
-            "SubagentStop"
-        ));
-    }
-
-    #[test]
-    fn test_pre_tool_use_hook_installed() {
-        let home = temp_home();
-        ensure_hooks_installed_in(home.path());
-
-        let content = fs::read_to_string(settings_path(&home)).unwrap();
-        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert!(hook_array_has_our_script(&val, "PreToolUse"));
-    }
-
-    #[test]
-    fn test_adds_pre_tool_use_when_others_exist() {
-        let home = temp_home();
-        fs::create_dir_all(claude_dir(&home)).unwrap();
-
-        // Pre-populate with all hooks except PreToolUse
-        let existing = serde_json::json!({
-            "hooks": {
-                "Notification": [{
-                    "matcher": "",
-                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
-                }],
-                "Stop": [{
-                    "matcher": "",
-                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
-                }],
-                "SubagentStop": [{
-                    "matcher": "",
-                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
-                }],
-                "SubagentStart": [{
-                    "matcher": "",
-                    "hooks": [{ "type": "command", "command": "${HOME}/.claude/agent-orchestrator-notify.sh" }]
-                }]
-            }
-        });
-        fs::write(settings_path(&home), serde_json::to_string_pretty(&existing).unwrap()).unwrap();
-        write_hook_script(&script_path(&home)).unwrap();
-        set_idle_threshold(&profile_path(&home)).unwrap();
-
-        let result = ensure_hooks_installed_in(home.path());
-        assert_eq!(result, HookInstallResult::Installed);
-        assert!(hook_array_has_our_script(
-            &serde_json::from_str::<serde_json::Value>(&fs::read_to_string(settings_path(&home)).unwrap()).unwrap(),
-            "PreToolUse"
-        ));
+        for event in HOOK_EVENTS {
+            let entries = val
+                .pointer(&format!("/hooks/{event}"))
+                .and_then(|e| e.as_array())
+                .unwrap_or_else(|| panic!("{event} missing from session settings"));
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0]["matcher"], serde_json::json!(""));
+            let command = entries[0]["hooks"][0]["command"].as_str().unwrap();
+            assert!(command.contains(HOOK_SCRIPT_NEEDLE));
+        }
     }
 
     #[test]
@@ -640,8 +522,7 @@ fi
         perms.set_mode(0o755);
         fs::set_permissions(script_path(&home), perms).unwrap();
 
-        // Install settings and profile so those checks pass
-        merge_hook_settings(&settings_path(&home)).unwrap();
+        // Install profile so that check passes
         set_idle_threshold(&profile_path(&home)).unwrap();
 
         // Should detect outdated script and reinstall
@@ -654,11 +535,11 @@ fi
     }
 
     #[test]
-    fn test_adds_stop_hook_when_only_notification_exists() {
+    fn test_migration_handles_partial_legacy_install() {
         let home = temp_home();
         fs::create_dir_all(claude_dir(&home)).unwrap();
 
-        // Pre-populate with only the Notification hook (simulates pre-fix installation)
+        // Pre-populate with only the Notification hook (oldest install shape)
         let existing = serde_json::json!({
             "hooks": {
                 "Notification": [
@@ -680,12 +561,10 @@ fi
         write_hook_script(&script_path(&home)).unwrap();
         set_idle_threshold(&profile_path(&home)).unwrap();
 
-        // Should detect missing Stop hook and install it
+        // Should detect the leftover hook and remove it
         let result = ensure_hooks_installed_in(home.path());
         assert_eq!(result, HookInstallResult::Installed);
 
-        assert!(settings_has_our_stop_hook(&settings_path(&home)));
-        // Notification hook still present
-        assert!(settings_has_our_hook(&settings_path(&home)));
+        assert!(!settings_has_any_of_our_hooks(&settings_path(&home)));
     }
 }

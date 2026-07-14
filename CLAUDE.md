@@ -17,7 +17,7 @@ npm run tauri build     # Build .app + DMG
 - `pty_manager.rs` — Dedicated OS thread owning all PTY state. Communicates via mpsc channels (portable-pty handles aren't Send/Sync). Spawns reader threads and startup timers per session.
 - `status_parser.rs` — Event-driven state machine (6 states: Starting, Working, Idle, NeedsAttention, Finished, Error). Purely hook-driven, no output parsing.
 - `status_server.rs` — `tiny_http` server on `127.0.0.1:0`. Endpoint: `POST /status/{ao_session_id}`. Receives hook events from Claude Code.
-- `hook_installer.rs` — Auto-installs `~/.claude/agent-orchestrator-notify.sh`, Notification + Stop hooks in `~/.claude/settings.json`, and idle threshold in `~/.claude.json`.
+- `hook_installer.rs` — Auto-installs `~/.claude/agent-orchestrator-notify.sh` and the idle threshold in `~/.claude.json`; removes hooks that older versions merged into `~/.claude/settings.json`. Hooks (Notification, Stop, SubagentStart/Stop, PreToolUse) are injected per-session via `claude --settings` (see `session_hook_settings` / `derive_argv`).
 - `commands.rs` — Tauri IPC commands: `create_session`, `close_session`, `write_to_session`, `resize_session`, `rename_session`, `list_sessions`, `git_pull_main`.
 - `state.rs` — `AppState` holding PtyManagerHandle + StatusServer.
 

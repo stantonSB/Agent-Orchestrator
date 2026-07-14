@@ -315,6 +315,11 @@ pub fn derive_argv(session_type: SessionType, claude_mode: ClaudeMode, is_git_re
             if is_git_repo {
                 a.push("--worktree".to_string());
             }
+            // Status hooks are scoped to this session via --settings rather
+            // than installed into the user's global ~/.claude/settings.json,
+            // so non-AO sessions never run the notify script.
+            a.push("--settings".to_string());
+            a.push(crate::hook_installer::session_hook_settings());
             (resolve_claude_path(), a)
         }
         SessionType::Terminal => {
@@ -1234,60 +1239,78 @@ mod tests {
         handle.shutdown();
     }
 
+    /// Expected argv: the mode/worktree flags followed by the per-session
+    /// hook settings that every Claude session receives.
+    fn with_settings(base: &[&str]) -> Vec<String> {
+        let mut v: Vec<String> = base.iter().map(|s| s.to_string()).collect();
+        v.push("--settings".to_string());
+        v.push(crate::hook_installer::session_hook_settings());
+        v
+    }
+
     #[test]
     fn test_derive_argv_claude_default() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, false);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert!(args.is_empty(), "Default mode should have no args, got: {:?}", args);
+        assert_eq!(args, with_settings(&[]));
     }
 
     #[test]
     fn test_derive_argv_claude_default_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, true);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--worktree"]);
+        assert_eq!(args, with_settings(&["--worktree"]));
     }
 
     #[test]
     fn test_derive_argv_claude_auto() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Auto, false);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--permission-mode", "auto"]);
+        assert_eq!(args, with_settings(&["--permission-mode", "auto"]));
     }
 
     #[test]
     fn test_derive_argv_claude_auto_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Auto, true);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--permission-mode", "auto", "--worktree"]);
+        assert_eq!(args, with_settings(&["--permission-mode", "auto", "--worktree"]));
     }
 
     #[test]
     fn test_derive_argv_claude_skip() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Skip, false);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--dangerously-skip-permissions"]);
+        assert_eq!(args, with_settings(&["--dangerously-skip-permissions"]));
     }
 
     #[test]
     fn test_derive_argv_claude_skip_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Skip, true);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--dangerously-skip-permissions", "--worktree"]);
+        assert_eq!(args, with_settings(&["--dangerously-skip-permissions", "--worktree"]));
     }
 
     #[test]
     fn test_derive_argv_claude_plan() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Plan, false);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--permission-mode", "plan"]);
+        assert_eq!(args, with_settings(&["--permission-mode", "plan"]));
     }
 
     #[test]
     fn test_derive_argv_claude_plan_git() {
         let (cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Plan, true);
         assert!(cmd.ends_with("claude"), "Command should end with 'claude', got: {cmd}");
-        assert_eq!(args, vec!["--permission-mode", "plan", "--worktree"]);
+        assert_eq!(args, with_settings(&["--permission-mode", "plan", "--worktree"]));
+    }
+
+    #[test]
+    fn test_derive_argv_claude_settings_is_valid_json_with_hooks() {
+        let (_cmd, args) = derive_argv(SessionType::Claude, ClaudeMode::Default, false);
+        let flag_pos = args.iter().position(|a| a == "--settings").expect("--settings present");
+        let payload: serde_json::Value =
+            serde_json::from_str(&args[flag_pos + 1]).expect("settings payload is valid JSON");
+        assert!(payload.get("hooks").is_some(), "settings payload should register hooks");
     }
 
     #[test]
