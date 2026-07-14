@@ -30,6 +30,8 @@ interface XTermInstanceProps {
   sessionId: string;
   /** Current working directory for the session. */
   cwd: string;
+  /** Worktree working directory, when the session is running inside one. */
+  worktreeCwd?: string | null;
   /** Called when the user types in this terminal. */
   onData?: (data: string) => void;
   /** Called when the terminal grid is resized. */
@@ -47,12 +49,13 @@ interface XTermInstanceProps {
 // ---------------------------------------------------------------------------
 
 export const XTermInstance = memo(forwardRef<XTermInstanceHandle, XTermInstanceProps>(
-  function XTermInstance({ sessionId: _sessionId, cwd, onData, onResize, mockMode, isActive, readOnly }, ref) {
+  function XTermInstance({ sessionId: _sessionId, cwd, worktreeCwd, onData, onResize, mockMode, isActive, readOnly }, ref) {
     const { containerRef, write, fit, getTerminal, findNext, findPrevious, clearSearch } = useTerminal({
       onData: readOnly ? undefined : onData,
       onResize: readOnly ? undefined : onResize,
       mockMode,
       cwd,
+      worktreeCwd,
       isActive,
     });
 

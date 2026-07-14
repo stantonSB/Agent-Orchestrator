@@ -51,6 +51,12 @@ export interface UseTerminalOptions {
   mockMode?: boolean;
   /** Current working directory for the session. */
   cwd?: string;
+  /**
+   * Worktree working directory, when the session's agent is operating inside a
+   * git worktree. Relative file paths in the terminal resolve against this in
+   * preference to `cwd` so Cmd+click opens files where they actually exist.
+   */
+  worktreeCwd?: string | null;
   /** Whether this terminal is the visible / active one. */
   isActive?: boolean;
 }
@@ -77,7 +83,7 @@ export interface UseTerminalReturn {
 // ---------------------------------------------------------------------------
 
 export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn {
-  const { onData, onResize, mockMode = false, cwd, isActive = true } = options;
+  const { onData, onResize, mockMode = false, cwd, worktreeCwd, isActive = true } = options;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -94,6 +100,8 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   onResizeRef.current = onResize;
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
+  const worktreeCwdRef = useRef(worktreeCwd);
+  worktreeCwdRef.current = worktreeCwd;
 
   // -----------------------------------------------------------------------
   // Lifecycle
@@ -129,7 +137,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     const unicodeAddon = new UnicodeGraphemesAddon();
     term.loadAddon(unicodeAddon);
     term.unicode.activeVersion = "15-graphemes";
-    term.registerLinkProvider(new FilePathLinkProvider(term, cwdRef));
+    term.registerLinkProvider(new FilePathLinkProvider(term, cwdRef, worktreeCwdRef));
 
     // Intercept Cmd+F so it doesn't get sent to the PTY
     term.attachCustomKeyEventHandler((event) => {

@@ -25,6 +25,7 @@ export interface TerminalSession {
   id: string;
   name: string;
   cwd: string;
+  worktreeCwd?: string | null;
   persisted?: boolean;
 }
 
@@ -367,6 +368,7 @@ export function TerminalArea({
             ref={getRefCallback(session.id)}
             sessionId={session.id}
             cwd={session.cwd}
+            worktreeCwd={session.worktreeCwd}
             isActive={session.id === activeSessionId}
             mockMode={mockMode}
             readOnly={session.persisted}
