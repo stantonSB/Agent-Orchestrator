@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.0] - 2026-07-14
+
+### Fixed
+- **Claude Code hooks no longer leak into non-AO sessions** — Older versions merged five hook entries into the global `~/.claude/settings.json`, causing the notify script to run before every tool call in every Claude Code session on the machine. Hooks are now injected per-session when Agent Orchestrator launches Claude Code, and on startup the app cleans up any global entries left behind by older versions, preserving unrelated hooks and settings (#126)
+
 ## [1.12.0] - 2026-06-17
 
 ### Changed
