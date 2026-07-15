@@ -134,40 +134,37 @@ Replace the whole `process_stop` method with:
     /// record of the same type, then the oldest Working of any type.
     /// Returns `true` if state changed.
     pub fn process_stop(&mut self, agent_id: Option<&str>, agent_type: &str) -> bool {
-        if let Some(aid) = agent_id {
-            if let Some(agent) = self.agents.iter_mut().find(|a| {
+        // Resolve the target record's index using the precedence rules, then
+        // mutate once — keeps a single "mark finished" site.
+        let target = match agent_id {
+            Some(aid) => self.agents.iter().position(|a| {
                 a.agent_id.as_deref() == Some(aid) && a.status == SessionStatus::Working
-            }) {
-                agent.status = SessionStatus::Finished;
-                agent.finished_at = Some(Instant::now());
-                return true;
+            }),
+            None => self
+                .agents
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.agent_type == agent_type && a.status == SessionStatus::Working)
+                .min_by_key(|(_, a)| a.index)
+                .map(|(i, _)| i)
+                .or_else(|| {
+                    self.agents
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, a)| a.status == SessionStatus::Working)
+                        .min_by_key(|(_, a)| a.index)
+                        .map(|(i, _)| i)
+                }),
+        };
+
+        match target {
+            Some(i) => {
+                self.agents[i].status = SessionStatus::Finished;
+                self.agents[i].finished_at = Some(Instant::now());
+                true
             }
-            return false;
+            None => false,
         }
-
-        if let Some(agent) = self
-            .agents
-            .iter_mut()
-            .filter(|a| a.agent_type == agent_type && a.status == SessionStatus::Working)
-            .min_by_key(|a| a.index)
-        {
-            agent.status = SessionStatus::Finished;
-            agent.finished_at = Some(Instant::now());
-            return true;
-        }
-
-        if let Some(agent) = self
-            .agents
-            .iter_mut()
-            .filter(|a| a.status == SessionStatus::Working)
-            .min_by_key(|a| a.index)
-        {
-            agent.status = SessionStatus::Finished;
-            agent.finished_at = Some(Instant::now());
-            return true;
-        }
-
-        false
     }
 ```
 
