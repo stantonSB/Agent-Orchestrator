@@ -371,4 +371,12 @@ mod tests {
         assert!(map.process_start(Some("t1"), "deck-impl", Some("Redesign the deck".to_string())));
         assert_eq!(map.subagents()[0].display_name, Some("Redesign the deck".to_string()));
     }
+
+    #[test]
+    fn test_upsert_backfills_agent_type_from_unknown() {
+        let mut map = SubagentMap::new();
+        map.process_start(Some("t1"), "unknown", None);
+        assert!(map.process_start(Some("t1"), "deck-impl", None));
+        assert_eq!(map.subagents()[0].agent_type, "deck-impl");
+    }
 }
