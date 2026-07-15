@@ -142,8 +142,9 @@ fn handle_request(
         .find(|h| h.field.equiv("X-Cwd"))
         .map(|h| h.value.to_string());
 
-    // Extract agent_type if present (SubagentStart/SubagentStop events include this).
+    // Extract subagent/teammate fields if present.
     let agent_type = json.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let agent_id = json.get("agent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
     let prompt = json.get("prompt").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // Extract the event type.
@@ -156,6 +157,10 @@ fn handle_request(
         "subagent_stop".to_string()
     } else if hook_event_name == Some("SubagentStart") {
         "subagent_start".to_string()
+    } else if hook_event_name == Some("TaskCreated") {
+        "task_created".to_string()
+    } else if hook_event_name == Some("TeammateIdle") {
+        "teammate_idle".to_string()
     } else if hook_event_name == Some("PreToolUse") {
         "pre_tool_use".to_string()
     } else {
@@ -179,20 +184,32 @@ fn handle_request(
                 }
 
                 let mut subagent_changed = false;
-                let is_subagent_event = notification_type == "subagent_start"
-                    || notification_type == "subagent_stop";
+                let is_start = notification_type == "subagent_start"
+                    || notification_type == "task_created";
+                let is_stop = notification_type == "subagent_stop"
+                    || notification_type == "teammate_idle";
+                let is_subagent_event = is_start || is_stop;
 
-                // Handle subagent lifecycle events
+                // Handle subagent/teammate lifecycle events
                 if is_subagent_event {
                     let type_name = agent_type.as_deref().unwrap_or("unknown");
+                    let aid = agent_id.as_deref();
                     let submap = tracker.subagent_map_mut();
-                    subagent_changed = match notification_type.as_str() {
-                        "subagent_start" => {
-                            let display_name = prompt.as_deref().and_then(derive_display_name);
-                            submap.process_start(type_name, display_name)
-                        }
-                        "subagent_stop" => submap.process_stop(type_name),
-                        _ => false,
+                    subagent_changed = if is_start {
+                        // Teammate appearance (task_created) labels by agent_type;
+                        // only classic subagents derive a display name from the task prompt.
+                        let display_name = if notification_type == "subagent_start" {
+                            prompt.as_deref().and_then(derive_display_name)
+                        } else {
+                            None
+                        };
+                        submap.process_start(aid, type_name, display_name)
+                    } else if notification_type == "teammate_idle" && aid.is_none() {
+                        // A TeammateIdle we cannot attribute to a specific teammate must
+                        // not finish an arbitrary Working agent (could be unrelated).
+                        false
+                    } else {
+                        submap.process_stop(aid, type_name)
                     };
                 }
 
@@ -758,6 +775,106 @@ mod tests {
         raw_http(port, &request);
 
         assert!(!called.load(Ordering::SeqCst), "callback should NOT fire for non-worktree paths");
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_task_created_registers_teammate() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"TaskCreated","agent_type":"deck-impl","agent_id":"t1"}"#;
+        let line = post(port, "/status/ao-sess", body);
+        assert_eq!(status_code(&line), 200);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let payload = tracker.subagent_map().payload();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].name, Some("deck-impl".to_string()));
+        assert_eq!(payload[0].status, crate::status_parser::SessionStatus::Working);
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_task_created_same_agent_id_dedupes() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"TaskCreated","agent_type":"deck-impl","agent_id":"t1"}"#;
+        post(port, "/status/ao-sess", body);
+        // A second task for the same teammate must not create a second row.
+        post(port, "/status/ao-sess", body);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        assert_eq!(tracker.subagent_map().subagents().len(), 1);
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_teammate_idle_marks_finished() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
+
+        let start = r#"{"session_id":"cc-parent","hook_event_name":"TaskCreated","agent_type":"deck-impl","agent_id":"t1"}"#;
+        post(port, "/status/ao-sess", start);
+        let idle = r#"{"session_id":"cc-parent","hook_event_name":"TeammateIdle","agent_id":"t1"}"#;
+        let line = post(port, "/status/ao-sess", idle);
+        assert_eq!(status_code(&line), 200);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let subagents = tracker.subagent_map().subagents();
+        assert_eq!(subagents.len(), 1);
+        assert_eq!(subagents[0].status, crate::status_parser::SessionStatus::Finished);
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_task_created_labels_by_agent_type_not_prompt() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
+
+        let body = r#"{"session_id":"cc-parent","hook_event_name":"TaskCreated","agent_type":"deck-impl","agent_id":"t1","prompt":"Redesign the whole slide deck end to end"}"#;
+        post(port, "/status/ao-sess", body);
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let payload = tracker.subagent_map().payload();
+        assert_eq!(payload[0].name, Some("deck-impl".to_string()));
+
+        server.stop();
+    }
+
+    #[test]
+    fn test_teammate_idle_without_agent_id_does_not_finish_others() {
+        let trackers = make_trackers();
+        trackers.lock().unwrap().insert("ao-sess".into(), StatusTracker::new());
+        let (server, port) = StatusServer::start(trackers.clone(), noop_callback(), noop_subagent_callback(), noop_worktree_callback());
+
+        // A regular subagent is Working.
+        let start = r#"{"session_id":"cc-parent","hook_event_name":"SubagentStart","agent_type":"code-reviewer"}"#;
+        post(port, "/status/ao-sess", start);
+
+        // A TeammateIdle with no agent_id must NOT finish the unrelated subagent.
+        let idle = r#"{"session_id":"cc-parent","hook_event_name":"TeammateIdle"}"#;
+        let line = post(port, "/status/ao-sess", idle);
+        assert_eq!(status_code(&line), 204, "no state change expected");
+
+        let map = trackers.lock().unwrap();
+        let tracker = map.get("ao-sess").unwrap();
+        let subagents = tracker.subagent_map().subagents();
+        assert_eq!(subagents.len(), 1);
+        assert_eq!(subagents[0].status, crate::status_parser::SessionStatus::Working);
 
         server.stop();
     }

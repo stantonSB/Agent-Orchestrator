@@ -25,15 +25,18 @@ const IDLE_THRESHOLD_MS: u64 = 500;
 
 /// Hook events forwarded to the status server. Notification drives
 /// Working/Idle/NeedsAttention transitions, Stop fires immediately on task
-/// completion, SubagentStart/SubagentStop track subagent lifecycles, and
+/// completion, SubagentStart/SubagentStop track subagent lifecycles,
+/// TaskCreated/TeammateIdle track in-process teammate lifecycles, and
 /// PreToolUse exists solely for early worktree CWD discovery via the
 /// script's X-Cwd header.
-const HOOK_EVENTS: [&str; 5] = [
+const HOOK_EVENTS: [&str; 7] = [
     "Notification",
     "Stop",
     "SubagentStop",
     "SubagentStart",
     "PreToolUse",
+    "TaskCreated",
+    "TeammateIdle",
 ];
 
 const HOOK_SCRIPT_NEEDLE: &str = "agent-orchestrator-notify";
