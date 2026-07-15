@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn test_subagent_map_mut_allows_modification() {
         let mut tracker = StatusTracker::new();
-        tracker.subagent_map_mut().process_start("code-reviewer", None);
+        tracker.subagent_map_mut().process_start(None, "code-reviewer", None);
         assert_eq!(tracker.subagent_map().subagents().len(), 1);
     }
 

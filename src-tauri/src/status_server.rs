@@ -142,8 +142,9 @@ fn handle_request(
         .find(|h| h.field.equiv("X-Cwd"))
         .map(|h| h.value.to_string());
 
-    // Extract agent_type if present (SubagentStart/SubagentStop events include this).
+    // Extract subagent/teammate fields if present.
     let agent_type = json.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let agent_id = json.get("agent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
     let prompt = json.get("prompt").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // Extract the event type.
@@ -179,20 +180,20 @@ fn handle_request(
                 }
 
                 let mut subagent_changed = false;
-                let is_subagent_event = notification_type == "subagent_start"
-                    || notification_type == "subagent_stop";
+                let is_start = notification_type == "subagent_start";
+                let is_stop = notification_type == "subagent_stop";
+                let is_subagent_event = is_start || is_stop;
 
-                // Handle subagent lifecycle events
+                // Handle subagent/teammate lifecycle events
                 if is_subagent_event {
                     let type_name = agent_type.as_deref().unwrap_or("unknown");
+                    let aid = agent_id.as_deref();
                     let submap = tracker.subagent_map_mut();
-                    subagent_changed = match notification_type.as_str() {
-                        "subagent_start" => {
-                            let display_name = prompt.as_deref().and_then(derive_display_name);
-                            submap.process_start(type_name, display_name)
-                        }
-                        "subagent_stop" => submap.process_stop(type_name),
-                        _ => false,
+                    subagent_changed = if is_start {
+                        let display_name = prompt.as_deref().and_then(derive_display_name);
+                        submap.process_start(aid, type_name, display_name)
+                    } else {
+                        submap.process_stop(aid, type_name)
                     };
                 }
 
