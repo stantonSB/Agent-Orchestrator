@@ -1,9 +1,13 @@
 # Changelog
 
-## [1.13.0] - 2026-07-14
+## [1.13.0] - 2026-07-16
+
+### Added
+- **Teammates in the fleet view** — In-process teammates spawned by Claude Code's task system now appear in a session's subagent list, tracked via the TaskCreated/TeammateIdle hooks. Subagent tracking is also more robust overall: agents are matched by ID instead of oldest-first guessing (#128)
 
 ### Fixed
 - **Claude Code hooks no longer leak into non-AO sessions** — Older versions merged five hook entries into the global `~/.claude/settings.json`, causing the notify script to run before every tool call in every Claude Code session on the machine. Hooks are now injected per-session when Agent Orchestrator launches Claude Code, and on startup the app cleans up any global entries left behind by older versions, preserving unrelated hooks and settings (#126)
+- **Cmd+Click file links in worktree sessions** — Relative file paths in terminal output now resolve against the session's git worktree instead of the base repository, so Cmd+clicking a file created inside a worktree opens it correctly (#127)
 
 ## [1.12.0] - 2026-06-17
 
