@@ -20,6 +20,7 @@
 | Shortcut | Action |
 |----------|--------|
 | `Cmd+F` | Open terminal search |
+| `Cmd+Shift+C` | Copy the selection for Slack, rejoining wrapped lines |
 | `Enter` | Next search match (when search is open) |
 | `Shift+Enter` | Previous search match (when search is open) |
 | `Escape` | Close search bar |
