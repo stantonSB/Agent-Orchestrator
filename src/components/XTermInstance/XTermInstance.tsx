@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import { useTerminal } from "./useTerminal";
+import { unwrapTerminalText } from "../../lib/unwrapTerminalText";
 import styles from "./XTermInstance.module.css";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +21,9 @@ export interface XTermInstanceHandle {
   clearSearch: () => void;
   focus: () => void;
   getScrollbackText: (lines: number) => string;
+  hasSelection: () => boolean;
+  getSelection: () => string;
+  getUnwrappedSelection: () => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +85,13 @@ export const XTermInstance = memo(forwardRef<XTermInstanceHandle, XTermInstanceP
           }
         }
         return result.join("\n");
+      },
+      hasSelection: () => getTerminal()?.hasSelection() ?? false,
+      getSelection: () => getTerminal()?.getSelection() ?? "",
+      getUnwrappedSelection: () => {
+        const term = getTerminal();
+        if (!term) return "";
+        return unwrapTerminalText(term.getSelection(), term.cols);
       },
     }), [write, fit, findNext, findPrevious, clearSearch, getTerminal]);
 

@@ -4,6 +4,7 @@ import {
   type XTermInstanceHandle,
 } from "../XTermInstance/XTermInstance";
 import { SearchBar } from "../SearchBar/SearchBar";
+import { ContextMenu } from "../ContextMenu/ContextMenu";
 import {
   onSessionOutput,
   onSessionExit,
@@ -13,6 +14,7 @@ import {
 import type { SessionExitPayload } from "../../types/tauri-events";
 import { useSessionStore } from "../../stores/sessionStore";
 import { decodeBase64, encodeBase64 } from "../../lib/base64";
+import { writeToClipboard } from "../../lib/writeToClipboard";
 import styles from "./TerminalArea.module.css";
 import { DropOverlay } from "./DropOverlay";
 import { useImageDrop } from "./useImageDrop";
@@ -54,6 +56,7 @@ export function TerminalArea({
   });
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const refsMap = useRef(new Map<string, XTermInstanceHandle>());
   const outputListeners = useRef(new Map<string, Promise<() => void>>());
   const exitListeners = useRef(new Map<string, Promise<() => void>>());
@@ -209,6 +212,7 @@ export function TerminalArea({
 
   // Load scrollback for persisted sessions when they become active
   const loadScrollback = useSessionStore((s) => s.loadScrollback);
+  const addToast = useSessionStore((s) => s.addToast);
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -336,6 +340,35 @@ export function TerminalArea({
     [activeSessionId],
   );
 
+  const copySelection = useCallback(
+    async (unwrap: boolean) => {
+      if (!activeSessionId) return;
+      const handle = refsMap.current.get(activeSessionId);
+      const text = (unwrap ? handle?.getUnwrappedSelection() : handle?.getSelection()) ?? "";
+      if (text === "") {
+        addToast("Select some text first", "warning");
+        return;
+      }
+      if (await writeToClipboard(text)) {
+        addToast(unwrap ? "Copied for Slack - wrapped lines rejoined" : "Copied", "info");
+      } else {
+        addToast("Could not write to the clipboard", "error");
+      }
+    },
+    [activeSessionId, addToast],
+  );
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.metaKey && e.shiftKey && e.code === "KeyC") {
+        e.preventDefault();
+        void copySelection(true);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [copySelection]);
+
   if (sessions.length === 0) {
     return (
       <div className={styles.terminalArea}>
@@ -352,9 +385,35 @@ export function TerminalArea({
   }
 
   return (
-    <div className={styles.terminalArea} {...dropHandlers}>
+    <div
+      className={styles.terminalArea}
+      {...dropHandlers}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuPosition({ x: e.clientX, y: e.clientY });
+      }}
+    >
       <div className={styles.terminalContainer}>
         {isDragging && <DropOverlay />}
+        {menuPosition && (
+          <ContextMenu
+            x={menuPosition.x}
+            y={menuPosition.y}
+            items={[
+              {
+                label: "Copy",
+                onClick: () => void copySelection(false),
+                disabled: !refsMap.current.get(activeSessionId ?? "")?.hasSelection(),
+              },
+              {
+                label: "Copy for Slack",
+                onClick: () => void copySelection(true),
+                disabled: !refsMap.current.get(activeSessionId ?? "")?.hasSelection(),
+              },
+            ]}
+            onClose={() => setMenuPosition(null)}
+          />
+        )}
         {isSearchOpen && (
           <SearchBar
             onFindNext={handleFindNext}
