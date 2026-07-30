@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.14.0] - 2026-07-30
+
+### Added
+- **Copy for Slack** — Claude Code's TUI hard-wraps assistant prose to the pane width, so a plain copy yields text broken mid-sentence. Cmd+Shift+C and a new terminal context-menu item rejoin those wrapped lines, so pasted text reads properly in Slack. Bullets, code fences, blank lines and genuine newlines survive, and hard-split URLs rejoin without a space. Plain Cmd+C stays byte-exact (#129)
+
 ## [1.13.0] - 2026-07-16
 
 ### Added
