@@ -390,6 +390,7 @@ export function TerminalArea({
       {...dropHandlers}
       onContextMenu={(e) => {
         e.preventDefault();
+        if (!refsMap.current.get(activeSessionId ?? "")?.hasSelection()) return;
         setMenuPosition({ x: e.clientX, y: e.clientY });
       }}
     >
