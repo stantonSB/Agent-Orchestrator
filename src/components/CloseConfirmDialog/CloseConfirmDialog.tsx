@@ -5,13 +5,14 @@ interface CloseConfirmDialogProps {
   sessionName: string;
   isRunning?: boolean;
   hasWorktree?: boolean;
-  onConfirm: (deleteWorktree: boolean) => void;
+  onConfirm: (deleteWorktree: boolean, mergeWorktree: boolean) => void;
   onCancel: () => void;
 }
 
 export function CloseConfirmDialog({ sessionName, isRunning = true, hasWorktree = false, onConfirm, onCancel }: CloseConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const [deleteWorktree, setDeleteWorktree] = useState(true);
+  const [mergeWorktree, setMergeWorktree] = useState(false);
   const title = isRunning ? "Close Session" : "Dismiss Session";
   const message = isRunning
     ? <>Are you sure you want to close <strong>{sessionName}</strong>? This will terminate the Claude process.</>
@@ -31,6 +32,17 @@ export function CloseConfirmDialog({ sessionName, isRunning = true, hasWorktree 
           <label className={styles.checkboxRow}>
             <input
               type="checkbox"
+              checked={mergeWorktree}
+              onChange={(e) => setMergeWorktree(e.target.checked)}
+              className={styles.checkbox}
+            />
+            <span className={styles.checkboxLabel}>Merge worktree into main branch</span>
+          </label>
+        )}
+        {hasWorktree && (
+          <label className={styles.checkboxRow}>
+            <input
+              type="checkbox"
               checked={deleteWorktree}
               onChange={(e) => setDeleteWorktree(e.target.checked)}
               className={styles.checkbox}
@@ -40,7 +52,7 @@ export function CloseConfirmDialog({ sessionName, isRunning = true, hasWorktree 
         )}
         <div className={styles.actions}>
           <button className={styles.cancelBtn} onClick={onCancel}>Cancel</button>
-          <button ref={confirmRef} className={styles.confirmBtn} onClick={() => onConfirm(hasWorktree && deleteWorktree)}>{confirmLabel}</button>
+          <button ref={confirmRef} className={styles.confirmBtn} onClick={() => onConfirm(hasWorktree && deleteWorktree, hasWorktree && mergeWorktree)}>{confirmLabel}</button>
         </div>
       </div>
     </div>

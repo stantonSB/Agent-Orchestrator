@@ -20,11 +20,11 @@ interface SessionState {
   updateSubagents: (sessionId: string, subagents: SubagentStatus[]) => void;
 
   // Session management
-  dismissSession: (id: string, deleteWorktree?: boolean) => void;
+  dismissSession: (id: string, deleteWorktree?: boolean, mergeWorktree?: boolean) => void;
 
   // Tauri IPC actions
   createSession: (name: string, cwd: string, sessionMode?: SessionMode, pullLatest?: boolean, isGitRepo?: boolean, parentSessionId?: string) => Promise<void>;
-  closeSession: (id: string, deleteWorktree?: boolean) => Promise<void>;
+  closeSession: (id: string, deleteWorktree?: boolean, mergeWorktree?: boolean) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
 
   // Quit confirmation
@@ -89,6 +89,24 @@ async function tryRemoveWorktree(worktreeCwd: string | undefined | null, addToas
   } catch (err) {
     addToast(
       `Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
+      "error"
+    );
+  }
+}
+
+async function tryMergeWorktree(worktreeCwd: string | undefined | null, addToast: SessionState["addToast"]) {
+  if (!worktreeCwd) return;
+  try {
+    const result = await invoke<{ merged: boolean; already_up_to_date: boolean; branch: string; target: string; message: string }>(
+      "merge_worktree",
+      { worktreePath: worktreeCwd }
+    );
+    if (result.merged && !result.already_up_to_date) {
+      addToast(`Merged ${result.branch} into ${result.target}`, "info");
+    }
+  } catch (err) {
+    addToast(
+      `Failed to merge worktree: ${err instanceof Error ? err.message : String(err)}`,
       "error"
     );
   }
@@ -199,7 +217,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  dismissSession: (id, deleteWorktree) => {
+  dismissSession: (id, deleteWorktree, mergeWorktree) => {
     const session = get().sessions.get(id);
     const worktreeCwd = session?.worktreeCwd;
     if (session?.persisted) {
@@ -226,7 +244,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       return { sessions: next, subagents: nextSubagents, activeSessionId };
     });
-    if (deleteWorktree) {
+    if (mergeWorktree) {
+      tryMergeWorktree(worktreeCwd, get().addToast).then(() => {
+        if (deleteWorktree) tryRemoveWorktree(worktreeCwd, get().addToast);
+      });
+    } else if (deleteWorktree) {
       tryRemoveWorktree(worktreeCwd, get().addToast);
     }
   },
@@ -314,7 +336,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  closeSession: async (id, deleteWorktree) => {
+  closeSession: async (id, deleteWorktree, mergeWorktree) => {
     const state = get();
     const session = state.sessions.get(id);
     const worktreeCwd = session?.worktreeCwd;
@@ -348,6 +370,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         console.error("Failed to delete persisted session:", err);
       }
       get().removeSession(id);
+      if (mergeWorktree) {
+        await tryMergeWorktree(worktreeCwd, get().addToast);
+      }
       if (deleteWorktree) {
         tryRemoveWorktree(worktreeCwd, get().addToast);
       }
@@ -368,6 +393,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     await invoke("close_session", { id });
     get().removeSession(id);
+    if (mergeWorktree) {
+      await tryMergeWorktree(worktreeCwd, get().addToast);
+    }
     if (deleteWorktree) {
       tryRemoveWorktree(worktreeCwd, get().addToast);
     }

@@ -199,6 +199,7 @@ pub fn run() {
             commands::delete_persisted_session,
             commands::save_dropped_image,
             commands::remove_worktree,
+            commands::merge_worktree,
             commands::quit_app,
         ])
         .on_window_event(|_window, _event| {

@@ -61,12 +61,12 @@ export function App() {
     setShowCloseConfirm(true);
   }, [activeSession]);
 
-  const handleConfirmClose = useCallback((deleteWorktree: boolean) => {
+  const handleConfirmClose = useCallback((deleteWorktree: boolean, mergeWorktree: boolean) => {
     if (!activeSession) return;
     if (activeIsRunning) {
-      closeSession(activeSession.id, deleteWorktree);
+      closeSession(activeSession.id, deleteWorktree, mergeWorktree);
     } else {
-      dismissSession(activeSession.id, deleteWorktree);
+      dismissSession(activeSession.id, deleteWorktree, mergeWorktree);
     }
     setShowCloseConfirm(false);
   }, [activeSession, activeIsRunning, closeSession, dismissSession]);
