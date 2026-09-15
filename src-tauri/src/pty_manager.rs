@@ -244,6 +244,7 @@ struct Session {
     is_git_repo: bool,
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn std::io::Write + Send>,
+    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
     #[allow(dead_code)]
     created_at: Instant,
     created_at_epoch_ms: u64,
@@ -531,6 +532,12 @@ fn manager_loop(
                             continue;
                         }
                     };
+                    // Shared so `Kill`/`Shutdown` can terminate the process
+                    // directly instead of relying on the child to notice its
+                    // pty going away (Claude Code deliberately survives a
+                    // hung-up terminal so a session can be resumed).
+                    let child = Arc::new(Mutex::new(child));
+                    let child_for_session = child.clone();
 
                     drop(pair.slave);
 
@@ -563,7 +570,7 @@ fn manager_loop(
                     let exit_cb = on_exit.clone();
                     let status_cb = on_status.clone();
                     let trackers_for_reader = status_trackers.clone();
-                    let mut child_for_wait = child;
+                    let child_for_wait = child;
                     let reader_handle = thread::Builder::new()
                         .name(format!("pty-reader-{}", &id[..8]))
                         .spawn(move || {
@@ -643,6 +650,8 @@ fn manager_loop(
                             let _ = io_handle.join();
 
                             let exit_code = child_for_wait
+                                .lock()
+                                .unwrap()
                                 .wait()
                                 .ok()
                                 .map(|status| status.exit_code());
@@ -714,6 +723,7 @@ fn manager_loop(
                             is_git_repo,
                             master: pair.master,
                             writer,
+                            child: child_for_session,
                             created_at: Instant::now(),
                             created_at_epoch_ms: now,
                             _reader_handle: reader_handle,
@@ -796,6 +806,7 @@ fn manager_loop(
 
                 PtyRequest::Kill { id, reply } => {
                     if let Some(session) = sessions.remove(&id) {
+                        let _ = session.child.lock().unwrap().kill();
                         drop(session.writer);
                         drop(session.master);
                         // Remove the status tracker for this session.
@@ -827,6 +838,7 @@ fn manager_loop(
                     let ids: Vec<SessionId> = sessions.keys().cloned().collect();
                     for id in ids {
                         if let Some(session) = sessions.remove(&id) {
+                            let _ = session.child.lock().unwrap().kill();
                             drop(session.writer);
                             drop(session.master);
                         }
@@ -1096,6 +1108,48 @@ mod tests {
             }
             other => panic!("Expected Sessions, got: {:?}", other),
         }
+        handle.shutdown();
+    }
+
+    #[test]
+    fn test_kill_session_ends_process_that_ignores_hangup() {
+        // A session that merely drops the PTY master/writer relies on the
+        // child noticing its terminal went away. Claude Code deliberately
+        // survives that (so a session can be resumed), so `Kill` has to
+        // reach the process directly. `cat` in test_kill_session above
+        // would exit on EOF from losing its pty either way, so it can't
+        // tell the two behaviours apart - this spawns a process that traps
+        // SIGHUP away, leaving an explicit `.kill()` as the only thing
+        // that can end it.
+        let (handle, _output, exit_log) = test_manager();
+        let resp = handle.create_raw(
+            "hangup-immune-test".into(),
+            std::env::temp_dir(),
+            "sh".into(),
+            vec!["-c".into(), "trap '' HUP; sleep 100".into()],
+            80,
+            24,
+            SessionType::Claude,
+        );
+        let id = match resp {
+            PtyResponse::Created { id } => id,
+            other => panic!("Expected Created, got: {:?}", other),
+        };
+        thread::sleep(Duration::from_millis(200));
+        let resp = handle.kill(id.clone());
+        match resp {
+            PtyResponse::Killed => {}
+            other => panic!("Expected Killed, got: {:?}", other),
+        }
+        thread::sleep(Duration::from_millis(500));
+        let log = exit_log.lock().unwrap();
+        assert!(
+            log.iter().any(|(eid, _)| eid == &id),
+            "Expected the process to actually exit after Kill, even though it traps \
+             SIGHUP away - got no exit callback for {}: {:?}",
+            id,
+            *log
+        );
         handle.shutdown();
     }
 

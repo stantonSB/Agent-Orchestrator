@@ -203,9 +203,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = get().sessions.get(id);
     const worktreeCwd = session?.worktreeCwd;
     if (session?.persisted) {
-      // Delete from disk (fire-and-forget)
       invoke("delete_persisted_session", { sessionId: id }).catch((err) => {
         console.error("Failed to delete persisted session:", err);
+      });
+    } else {
+      invoke("close_session", { id }).catch((err) => {
+        console.error("Failed to close session on dismiss:", err);
       });
     }
     cancelSubagentCleanup(id);
