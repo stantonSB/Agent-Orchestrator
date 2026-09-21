@@ -345,6 +345,51 @@ describe("sessionStore", () => {
     });
   });
 
+  describe("dismissSession", () => {
+    it("kills the backend process for a non-persisted session", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "finished-123",
+        name: "Test",
+        status: "finished",
+        createdAt: Date.now(),
+        cwd: "/test/path",
+        sessionType: "claude",
+        isGitRepo: true,
+      });
+
+      store.dismissSession("finished-123");
+
+      expect(invoke).toHaveBeenCalledWith("close_session", { id: "finished-123" });
+      expect(useSessionStore.getState().sessions.has("finished-123")).toBe(false);
+    });
+
+    it("deletes the persisted record instead of killing a process for a persisted session", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+      const store = useSessionStore.getState();
+      store.addSession({
+        id: "persisted-123",
+        name: "Test",
+        status: "finished",
+        createdAt: Date.now(),
+        cwd: "/test/path",
+        sessionType: "claude",
+        isGitRepo: true,
+        persisted: true,
+      });
+
+      store.dismissSession("persisted-123");
+
+      expect(invoke).toHaveBeenCalledWith("delete_persisted_session", { sessionId: "persisted-123" });
+      expect(invoke).not.toHaveBeenCalledWith("close_session", { id: "persisted-123" });
+    });
+  });
+
   describe("createSession — lastUsedDirectory", () => {
     it("sets lastUsedDirectory after creating a session", async () => {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -436,7 +481,10 @@ describe("sessionStore", () => {
       expect(subagents.has("session-1")).toBe(false);
     });
 
-    it("clears subagents when session is dismissed", () => {
+    it("clears subagents when session is dismissed", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
       const store = useSessionStore.getState();
       store.addSession({
         id: "session-1",
