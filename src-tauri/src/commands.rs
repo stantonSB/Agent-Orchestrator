@@ -328,6 +328,27 @@ pub fn delete_persisted_session(
         .map_err(|e| e.to_string())
 }
 
+fn resolve_worktree_repo_root(path: &std::path::Path) -> PathBuf {
+    let common_dir_output = std::process::Command::new("git")
+        .args(["rev-parse", "--git-common-dir"])
+        .current_dir(path)
+        .output();
+
+    match common_dir_output {
+        Ok(output) if output.status.success() => {
+            let git_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let git_path = PathBuf::from(&git_dir);
+            if git_path.is_absolute() {
+                git_path.parent().unwrap_or(&git_path).to_path_buf()
+            } else {
+                let resolved = path.join(&git_path);
+                resolved.parent().unwrap_or(&resolved).to_path_buf()
+            }
+        }
+        _ => path.to_path_buf(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct WorktreeRemoveResult {
     pub removed: bool,
@@ -346,7 +367,6 @@ pub fn remove_worktree(worktree_path: String, force: bool) -> Result<WorktreeRem
         });
     }
 
-    // Check for uncommitted changes unless forcing
     if !force {
         let status_output = std::process::Command::new("git")
             .args(["status", "--porcelain"])
@@ -366,36 +386,13 @@ pub fn remove_worktree(worktree_path: String, force: bool) -> Result<WorktreeRem
         }
     }
 
-    // Run git worktree remove from the worktree's parent repo
     let mut args = vec!["worktree", "remove"];
     if force {
         args.push("--force");
     }
     args.push(&worktree_path);
 
-    // We need to run from the main repo root, not from the worktree itself.
-    // Derive it by resolving the git common dir.
-    let common_dir_output = std::process::Command::new("git")
-        .args(["rev-parse", "--git-common-dir"])
-        .current_dir(&path)
-        .output()
-        .map_err(|e| format!("Failed to find git common dir: {e}"))?;
-
-    let repo_root = if common_dir_output.status.success() {
-        let git_dir = String::from_utf8_lossy(&common_dir_output.stdout).trim().to_string();
-        // git common dir is typically <repo>/.git — parent is the repo root
-        let git_path = PathBuf::from(&git_dir);
-        if git_path.is_absolute() {
-            git_path.parent().unwrap_or(&git_path).to_path_buf()
-        } else {
-            // Relative path — resolve from the worktree cwd
-            let resolved = path.join(&git_path);
-            resolved.parent().unwrap_or(&resolved).to_path_buf()
-        }
-    } else {
-        // Fallback: try running from the worktree path itself
-        path.clone()
-    };
+    let repo_root = resolve_worktree_repo_root(&path);
 
     let remove_output = std::process::Command::new("git")
         .args(&args)
@@ -413,6 +410,98 @@ pub fn remove_worktree(worktree_path: String, force: bool) -> Result<WorktreeRem
         let stderr = String::from_utf8_lossy(&remove_output.stderr).trim().to_string();
         Err(format!("git worktree remove failed: {stderr}"))
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeMergeResult {
+    pub merged: bool,
+    pub already_up_to_date: bool,
+    pub branch: String,
+    pub target: String,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn merge_worktree(worktree_path: String) -> Result<WorktreeMergeResult, String> {
+    let path = PathBuf::from(&worktree_path);
+    if !path.exists() {
+        return Err(format!("Worktree directory does not exist: {worktree_path}"));
+    }
+
+    let branch_output = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| format!("Failed to determine worktree branch: {e}"))?;
+    if !branch_output.status.success() {
+        return Err(format!(
+            "Failed to determine worktree branch: {}",
+            String::from_utf8_lossy(&branch_output.stderr).trim()
+        ));
+    }
+    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        return Err("Worktree is in a detached HEAD state, nothing to merge".into());
+    }
+
+    let repo_root = resolve_worktree_repo_root(&path);
+
+    let target_output = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to determine target branch: {e}"))?;
+    let target = String::from_utf8_lossy(&target_output.stdout).trim().to_string();
+    if !target_output.status.success() || target.is_empty() || target == "HEAD" {
+        return Err(format!(
+            "{} is not on a branch (detached HEAD), merge target is ambiguous",
+            repo_root.display()
+        ));
+    }
+
+    let target_status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to check target checkout status: {e}"))?;
+    if target_status.status.success()
+        && !String::from_utf8_lossy(&target_status.stdout).trim().is_empty()
+    {
+        return Err(format!(
+            "{} has uncommitted changes, commit or stash before merging",
+            repo_root.display()
+        ));
+    }
+
+    let merge_output = std::process::Command::new("git")
+        .args(["merge", "--no-edit", &branch])
+        .current_dir(&repo_root)
+        .output()
+        .map_err(|e| format!("Failed to run git merge: {e}"))?;
+
+    if merge_output.status.success() {
+        let stdout = String::from_utf8_lossy(&merge_output.stdout).trim().to_string();
+        let already_up_to_date = stdout.contains("Already up to date");
+        return Ok(WorktreeMergeResult {
+            merged: true,
+            already_up_to_date,
+            branch,
+            target,
+            message: stdout,
+        });
+    }
+
+    let _ = std::process::Command::new("git")
+        .args(["merge", "--abort"])
+        .current_dir(&repo_root)
+        .output();
+
+    let stderr = String::from_utf8_lossy(&merge_output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&merge_output.stdout).trim().to_string();
+    let detail = if stderr.is_empty() { stdout } else { stderr };
+    Err(format!(
+        "git merge of {branch} into {target} failed and was aborted: {detail}"
+    ))
 }
 
 #[tauri::command]
@@ -443,6 +532,120 @@ mod tests {
     #[test]
     fn decode_input_bytes_rejects_invalid_base64() {
         assert!(decode_input_bytes("not valid base64!!!").is_err());
+    }
+
+    fn run_git(dir: &std::path::Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git command runs");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn init_repo(dir: &std::path::Path) {
+        run_git(dir, &["init", "-q", "-b", "main"]);
+        run_git(dir, &["config", "user.email", "test@example.com"]);
+        run_git(dir, &["config", "user.name", "Test"]);
+        std::fs::write(dir.join("README.md"), "base\n").unwrap();
+        run_git(dir, &["add", "README.md"]);
+        run_git(dir, &["commit", "-q", "-m", "base"]);
+    }
+
+    #[test]
+    fn merge_worktree_fast_forwards_a_clean_branch() {
+        let repo = tempfile::tempdir().unwrap();
+        init_repo(repo.path());
+
+        let wt = tempfile::tempdir().unwrap();
+        let wt_path = wt.path().join("wt");
+        run_git(repo.path(), &["worktree", "add", "-b", "feature", wt_path.to_str().unwrap()]);
+
+        std::fs::write(wt_path.join("feature.txt"), "hello\n").unwrap();
+        run_git(&wt_path, &["add", "feature.txt"]);
+        run_git(&wt_path, &["commit", "-q", "-m", "add feature"]);
+
+        let result = merge_worktree(wt_path.to_str().unwrap().to_string()).expect("merge succeeds");
+        assert!(result.merged);
+        assert!(!result.already_up_to_date);
+        assert_eq!(result.branch, "feature");
+        assert_eq!(result.target, "main");
+        assert!(repo.path().join("feature.txt").exists());
+    }
+
+    #[test]
+    fn merge_worktree_reports_already_up_to_date() {
+        let repo = tempfile::tempdir().unwrap();
+        init_repo(repo.path());
+
+        let wt = tempfile::tempdir().unwrap();
+        let wt_path = wt.path().join("wt");
+        run_git(repo.path(), &["worktree", "add", "-b", "feature", wt_path.to_str().unwrap()]);
+
+        let result = merge_worktree(wt_path.to_str().unwrap().to_string()).expect("merge succeeds");
+        assert!(result.merged);
+        assert!(result.already_up_to_date);
+    }
+
+    #[test]
+    fn merge_worktree_refuses_a_dirty_target() {
+        let repo = tempfile::tempdir().unwrap();
+        init_repo(repo.path());
+
+        let wt = tempfile::tempdir().unwrap();
+        let wt_path = wt.path().join("wt");
+        run_git(repo.path(), &["worktree", "add", "-b", "feature", wt_path.to_str().unwrap()]);
+
+        std::fs::write(wt_path.join("feature.txt"), "hello\n").unwrap();
+        run_git(&wt_path, &["add", "feature.txt"]);
+        run_git(&wt_path, &["commit", "-q", "-m", "add feature"]);
+
+        std::fs::write(repo.path().join("README.md"), "dirty\n").unwrap();
+
+        let err = merge_worktree(wt_path.to_str().unwrap().to_string()).unwrap_err();
+        assert!(err.contains("uncommitted changes"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn merge_worktree_aborts_cleanly_on_conflict() {
+        let repo = tempfile::tempdir().unwrap();
+        init_repo(repo.path());
+
+        let wt = tempfile::tempdir().unwrap();
+        let wt_path = wt.path().join("wt");
+        run_git(repo.path(), &["worktree", "add", "-b", "feature", wt_path.to_str().unwrap()]);
+
+        std::fs::write(wt_path.join("README.md"), "from branch\n").unwrap();
+        run_git(&wt_path, &["add", "README.md"]);
+        run_git(&wt_path, &["commit", "-q", "-m", "conflicting change"]);
+
+        std::fs::write(repo.path().join("README.md"), "from main\n").unwrap();
+        run_git(repo.path(), &["add", "README.md"]);
+        run_git(repo.path(), &["commit", "-q", "-m", "main change"]);
+
+        let err = merge_worktree(wt_path.to_str().unwrap().to_string()).unwrap_err();
+        assert!(err.contains("aborted"), "unexpected error: {err}");
+
+        let status = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+            "repo should be clean after abort"
+        );
+    }
+
+    #[test]
+    fn merge_worktree_rejects_missing_directory() {
+        let err = merge_worktree("/no/such/worktree/path".to_string()).unwrap_err();
+        assert!(err.contains("does not exist"), "unexpected error: {err}");
     }
 }
 

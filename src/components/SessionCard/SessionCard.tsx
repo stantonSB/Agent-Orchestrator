@@ -11,8 +11,8 @@ interface SessionCardProps {
   session: SessionInfo;
   isActive: boolean;
   onClick: (id: string) => void;
-  onClose?: (id: string, deleteWorktree: boolean) => void;
-  onDismiss?: (id: string, deleteWorktree: boolean) => void;
+  onClose?: (id: string, deleteWorktree: boolean, mergeWorktree: boolean) => void;
+  onDismiss?: (id: string, deleteWorktree: boolean, mergeWorktree: boolean) => void;
   onRename?: (id: string, name: string) => void;
 }
 
@@ -183,11 +183,11 @@ function SessionCardComponent({ session, isActive, onClick, onClose, onDismiss, 
             sessionName={session.name}
             isRunning={isRunning(session.status)}
             hasWorktree={!!session.worktreeCwd}
-            onConfirm={(deleteWorktree) => {
+            onConfirm={(deleteWorktree, mergeWorktree) => {
               if (isRunning(session.status)) {
-                onClose?.(session.id, deleteWorktree);
+                onClose?.(session.id, deleteWorktree, mergeWorktree);
               } else {
-                onDismiss?.(session.id, deleteWorktree);
+                onDismiss?.(session.id, deleteWorktree, mergeWorktree);
               }
               setShowCloseConfirm(false);
             }}
